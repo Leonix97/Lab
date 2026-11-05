@@ -1,0 +1,24 @@
+{
+  "id": "./index.html",
+  "name": "Laboratorio CQC",
+  "short_name": "Laboratorio",
+  "description": "Registro de ensayos de laboratorio CQC: correlativos, capas y pendientes del equipo.",
+  "lang": "es",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f4f6",
+  "theme_color": "#134e4a",
+  "categories": ["productivity", "business"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Nuevo ensayo", "short_name": "Nuevo", "url": "./index.html?v=nuevo", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Pendientes", "short_name": "Pendientes", "url": "./index.html?v=pend", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Ensayos del día", "short_name": "Del día", "url": "./index.html?v=hoy", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
+  ]
+}
