@@ -260,6 +260,12 @@
   .esig input{width:62px;padding:7px 8px;text-align:center;font-weight:700}
   .esig small{font-size:10.5px;color:#9ca3af;white-space:nowrap}
   .esig.warn input{border-color:#f59e0b;background:#fffbeb}
+  .toks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.toks .mini{margin-top:0;font-family:ui-monospace,monospace}
+  .estr{display:grid;grid-template-columns:1fr 110px auto;gap:6px;margin-bottom:8px}
+  .rdbox{margin-top:16px;padding-top:14px;border-top:1px dashed #e5e7eb}
+  .rdbtn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin-bottom:8px}
+  .esigs{display:flex;flex-direction:column;gap:4px;flex:none}
+  .esig small:first-child{min-width:30px;text-align:right}
 </style>
 </head>
 <body>
@@ -301,7 +307,7 @@ function hoyStr(off){ var d=new Date(); if(off) d.setDate(d.getDate()+off); retu
 function fechaDe(s){ var p=s.split("-"); return new Date(+p[0],+p[1]-1,+p[2]); }
 function fechaTxt(f){ var p=String(f||"").split("-"); return p.length===3?p[2]+"/"+p[1]+"/"+p[0]:f; }
 function fechaCorta(f){ var p=String(f||"").split("-"); return p.length===3?p[2]+"/"+p[1]:""; }
-function esMuestra(k,C){ var t=(C||cfg).tipos[k]; return !!(t&&t.muestra); }      // sin correlativo propio
+function esMuestra(k,C){ var t=(C||cfg).tipos[k]; return !!(t&&t.muestra); }      // muestreo: correlativo sin código de ensayo
 function usaNEns(k,C){ var t=(C||cfg).tipos[k]; return !!(t&&t.nEns); }          // pide N° de ensayo por capa
 
 /* ════════════════════════════════════════════════════════════════
@@ -341,12 +347,14 @@ function matFrente(nombre,ensIds,procs){ return {m:nombre,ens:ensIds.slice(),pro
 function ensayosPorDefecto(nombre){
   return defaultEnsayos().map(function(e){ return e.id; }).filter(function(id){ return !(nombre==="SUELO DE BAJA PERMEABILIDAD" && id==="REEMPLAZO"); });
 }
+/* estructuras de fábrica: solo el Tajo Chalarina trae sus etapas */
+function estructurasDefecto(id){ return id==="tajo"?[{nombre:"ETAPA 1A",codigo:""},{nombre:"ETAPA 1B",codigo:""}]:[]; }
 function defaultConfig(){
   var mats=Object.keys(MAT_COD);
-  function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,
+  function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
   return {
-    esquema:4, prefijo:"ST.CA", digCod:"3",
+    esquema:4, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -385,6 +393,8 @@ function sanitizeCfg(c){
   var o={esquema:4,reporte:rep};
   o.prefijo = up(c.prefijo).replace(/[^A-Z0-9Ñ.\-_]/g,"").replace(/^\.+|\.+$/g,"");
   o.digCod = String(digitos(c.digCod,3));
+  o.formato = /\{N\}/i.test(str(c.formato)) ? str(c.formato).toUpperCase() : "{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}";
+  o.codEM = codigoLimpio(c.codEM)||"EM";
   o.ensayos = (Array.isArray(c.ensayos)?c.ensayos:d.ensayos).map(function(t){ return sanitizeEnsayo(t); })
     .filter(function(t){ return t.id && (t.corto||t.largo); });
   if(!o.ensayos.length) o.ensayos=d.ensayos;
@@ -397,7 +407,10 @@ function sanitizeCfg(c){
   var nms=o.materiales.map(function(m){ return m.nombre; });
   o.frentes=(Array.isArray(c.frentes)?c.frentes:[]).map(function(f){ f=f||{};
     var vistos={};
+    var ests=Array.isArray(f.estructuras)?f.estructuras:estructurasDefecto(str(f.id));
     return {id:str(f.id)||newId(),nombre:up(f.nombre),corto:up(f.corto),codigo:codigoLimpio(f.codigo),
+      formato:/\{N\}/i.test(str(f.formato))?str(f.formato).toUpperCase():"",
+      estructuras:ests.filter(function(x){ return x&&str(x.nombre); }).map(function(x){ return {nombre:up(x.nombre),codigo:codigoLimpio(x.codigo)}; }),
       mats:(Array.isArray(f.mats)?f.mats:[]).filter(function(x){ var ok=x&&nms.indexOf(x.m)>=0&&!vistos[x.m]; if(ok) vistos[x.m]=1; return ok; })
         .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens)).filter(function(k){ return ids.indexOf(k)>=0; }),
                                   proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; })}; })};
@@ -421,7 +434,7 @@ function migrar(c,d){
   var cods={}; d.frentes.forEach(function(f){ cods[f.id]=f.codigo; });
   if(Array.isArray(c.frentes)) d.frentes=c.frentes.filter(function(f){ return f&&str(f.nombre); }).map(function(f){
     var off=f.off||{ensayos:[],materiales:[],procedencias:[]};
-    return {id:str(f.id)||newId(),nombre:up(f.nombre),corto:up(f.corto),codigo:cods[f.id]||codigoLimpio(f.corto).slice(0,8),
+    return {id:str(f.id)||newId(),nombre:up(f.nombre),corto:up(f.corto),codigo:cods[f.id]||codigoLimpio(f.corto).slice(0,8),formato:"",estructuras:estructurasDefecto(str(f.id)),
       mats:mats.filter(function(m){ return arrStr(off.materiales).indexOf(m)<0; }).map(function(m){
         var no=arrStr(mo[m]).concat(arrStr(off.ensayos));
         return matFrente(m,ids.filter(function(k){ return no.indexOf(k)<0; }),d.procedencias.filter(function(p){ return arrStr(off.procedencias).indexOf(p)<0; })); })};
@@ -439,6 +452,8 @@ function validateCfg(c){
     else if(vistos[codigoLimpio(f.codigo)]) e.push("El código de frente “"+codigoLimpio(f.codigo)+"” está repetido ("+vistos[codigoLimpio(f.codigo)]+" y "+nm+").");
     else vistos[codigoLimpio(f.codigo)]=nm;
     if(!f.mats.length) e.push(nm+": agrega al menos un material.");
+    if(str(f.formato) && !/\{N\}/i.test(f.formato)) e.push(nm+": el formato del correlativo debe tener {N}.");
+    (f.estructuras||[]).forEach(function(x){ if(!str(x.nombre)) e.push(nm+": hay una estructura sin nombre."); });
     f.mats.forEach(function(x){ if(!x.ens.length) e.push(nm+" · "+cap(x.m)+": marca al menos un ensayo."); });
   });
   var vm={};
@@ -455,6 +470,7 @@ function validateCfg(c){
     else va[a]=nm;
   });
   if(!(ent(c.digCod)>=1&&ent(c.digCod)<=6)) e.push("Los dígitos del correlativo deben estar entre 1 y 6.");
+  if(!/\{N\}/i.test(str(c.formato))) e.push("El formato general del correlativo debe tener {N}.");
   return e;
 }
 
@@ -498,18 +514,32 @@ function todosUsos(){
   usos.forEach(function(u){ if(!u.u||!por[u.u]){ if(u.u) por[u.u]=1; out.push(u); } });
   return out;
 }
-/* contador propio por combinación frente · ensayo · material */
-function serieKey(k,f,m){ return f+"|"+k+"|"+m; }
-function serie(k,f,m,C){ return (C||cfg).series[serieKey(k,f,m)]||{sig:"1",reinicio:0}; }
-function ctx(f,m){ return [f!==undefined?f:state.frente, m!==undefined?m:(state.d?state.d.material:"")]; }
-function ultCod(k,f,m){ var c=ctx(f,m), r=serie(k,c[0],c[1]).reinicio||0, x=0;
-  todosUsos().forEach(function(u){ if(u.k===k && u.f===c[0] && u.m===c[1] && u.t>=r && u.n>x) x=u.n; }); return x; }
-function sigCod(k,f,m){ var c=ctx(f,m); return Math.max(ent(serie(k,c[0],c[1]).sig)||1, ultCod(k,c[0],c[1])+1); }
-function partesCod(k,f,m,C){ C=C||cfg; var c=ctx(f,m), fr=findBy(C.frentes,"id",c[0]);
-  var pre=[str(C.prefijo), fr?codigoLimpio(fr.codigo):"", C.tipos[k]?codigoLimpio(C.tipos[k].abrev):"", codigoLimpio(codMaterial(c[1],C))].filter(Boolean).join(".");
-  return [pre+".",""]; }
-function fmtCod(k,num,f,m,C){ C=C||cfg; var p=partesCod(k,f,m,C); return p[0]+padN(num,ent(C.digCod)||3)+p[1]; }
-function codCorto(k,num){ return (cfg.tipos[k]?cfg.tipos[k].abrev:k)+"-"+padN(num,ent(cfg.digCod)||3); }
+/* contador propio por combinación frente · ensayo · material (o evaluación de material) */
+var EM_KEY="__EM__";
+/* la estructura (si el frente tiene) también separa el contador */
+function serieKey(k,f,m,es){ return f+"|"+k+"|"+m+(es?"|"+es:""); }
+function serie(k,f,m,C,es){ return (C||cfg).series[serieKey(k,f,m,es)]||{sig:"1",reinicio:0}; }
+function matKey(){ var d=state.d; return d?(d.evalMat?EM_KEY:d.material):""; }
+function ctx(f,m,es){ return [f!==undefined?f:state.frente, m!==undefined?m:matKey(), es!==undefined?es:(state.d?state.d.estructura||"":"")]; }
+function mkDe(u){ return u.em?EM_KEY:u.m; }
+function ultCod(k,f,m,es){ var c=ctx(f,m,es), r=serie(k,c[0],c[1],null,c[2]).reinicio||0, x=0;
+  todosUsos().forEach(function(u){ if(u.k===k && u.f===c[0] && mkDe(u)===c[1] && (u.es||"")===c[2] && u.t>=r && u.n>x) x=u.n; }); return x; }
+function sigCod(k,f,m,es){ var c=ctx(f,m,es); return Math.max(ent(serie(k,c[0],c[1],null,c[2]).sig)||1, ultCod(k,c[0],c[1],c[2])+1); }
+/* formato con marcadores: {PRE} {FRENTE} {EST} {ENSAYO} {MAT} {N}; los vacíos no dejan puntos dobles */
+function partesCod(k,f,m,C,es){
+  C=C||cfg; var c=ctx(f,m), fr=findBy(C.frentes,"id",c[0]), t=C.tipos[k];
+  if(es===undefined) es=state.d?state.d.estructura:"";
+  var est=fr&&es?findBy(fr.estructuras||[],"nombre",es):null;
+  var v={PRE:str(C.prefijo),FRENTE:fr?codigoLimpio(fr.codigo):"",EST:est?codigoLimpio(est.codigo):"",
+         ENSAYO:t&&!t.muestra?codigoLimpio(t.abrev):"",MAT:c[1]===EM_KEY?codigoLimpio(C.codEM||"EM"):codigoLimpio(codMaterial(c[1],C))};
+  var fm=String((fr&&str(fr.formato))||C.formato||"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}").toUpperCase();
+  var x=fm.replace(/\{(PRE|FRENTE|EST|ENSAYO|MAT)\}/g,function(a,b){ return v[b]; }).replace("{N}","\u0001");
+  x=x.replace(/\.{2,}/g,".").replace(/^\.+/,"").replace(/\.+$/,"");
+  var i=x.indexOf("\u0001");
+  return i<0?[x+".",""]:[x.slice(0,i),x.slice(i+1)];
+}
+function fmtCod(k,num,f,m,C,es){ C=C||cfg; var p=partesCod(k,f,m,C,es); return p[0]+padN(num,ent(C.digCod)||3)+p[1]; }
+function codCorto(k,num){ return ((cfg.tipos[k]&&cfg.tipos[k].abrev)||(esMuestra(k)?"M":k))+"-"+padN(num,ent(cfg.digCod)||3); }
 function normCapa(s){ return up(s).replace(/^CAPA\s*N?°?\s*/,"").replace(/\s+/g," "); }
 /* ensayos ya registrados en la misma capa (mismo frente, material y tipo de ensayo) */
 function enCapa(frente,material,capa,tipo){
@@ -703,12 +733,12 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
+function nuevoForm(){ return {estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
   state.d=nuevoForm();
-  if(prev && !limpiar){ state.d.material=prev.material; state.d.procedencia=prev.procedencia; state.d.procOtra=prev.procOtra; state.d.capa=prev.capa; }
+  if(prev && !limpiar){ state.d.estructura=prev.estructura; state.d.evalMat=prev.evalMat; state.d.material=prev.material; state.d.procedencia=prev.procedencia; state.d.procOtra=prev.procOtra; state.d.capa=prev.capa; }
   state.foto=null; state.subida=null; state.origen=""; state.pend=null;
   var fr=getFrente(state.frente);
   if(fr){
@@ -845,7 +875,12 @@ function fechaCtl(){
 /* ════════════════════════════════════════════════════════════════
    TEXTO
    ════════════════════════════════════════════════════════════════ */
-function codigoActual(){ var d=state.d; return d.fijo?d.fijo.cod : d.codEdit?ent(d.codN) : sigCod(state.tipo); }
+/* sugerido: en un pendiente se toma el número de su generador (RA-131 → G-131); si no, el siguiente de la serie */
+function deGenerador(k){ var p=state.pend; return !!(p && p.k===k && p.n>0); }
+function sugCod(k){ return deGenerador(k) ? state.pend.n : sigCod(k); }
+function existeCod(k,num){ var f=state.frente, m=matKey(), es=state.d.estructura||"";
+  return todosUsos().some(function(u){ return u.k===k && u.f===f && mkDe(u)===m && (u.es||"")===es && u.n===num && u.t>=(serie(k,f,m,null,es).reinicio||0); }); }
+function codigoActual(){ var d=state.d; return d.fijo?d.fijo.cod : d.codEdit?ent(d.codN) : sugCod(state.tipo); }
 function capaLista(){ var d=state.d; return enCapa(state.frente,d.material,d.capa,state.tipo); }
 /* n° de ensayo: con capa se propone el siguiente de esa capa; sin capa es opcional */
 function nEnsActual(){
@@ -873,17 +908,21 @@ function asocElegidos(){
   return a;
 }
 function evaluar(){
-  var d=state.d, fr=getFrente(state.frente), R={falta:[],err:[],warn:[]}, mu=esMuestra(state.tipo);
+  var d=state.d, fr=getFrente(state.frente), R={falta:[],err:[],warn:[]}, mu=false;
+  if(fr && (fr.estructuras||[]).length && !d.estructura) R.falta.push("estructura");
   if(!d.material) R.falta.push("material");
   if(procedenciasDe(fr).length && !str(d.procedencia)) R.falta.push(d.procOtra?"escribir la procedencia":"procedencia");
   R.capa=normCapa(d.capa);
   R.cod = mu?NaN:codigoActual(); R.nEns = mu?NaN:nEnsActual();
   if(!mu && !(R.cod>=1)) R.err.push("Escribe el número del correlativo.");
   if(usaNEns(state.tipo) && R.capa && d.material && !(R.nEns>=1)) R.err.push("Escribe el N° de ensayo de la capa.");
-  if(!mu && !d.fijo && d.codEdit && R.cod>=1){
-    var sug=sigCod(state.tipo), ult=ultCod(state.tipo);
-    if(R.cod!==sug) R.warn.push("Cambiaste el correlativo sugerido ("+codCorto(state.tipo,sug)+"). Los siguientes continuarán desde el mayor registrado.");
-    if(R.cod<=ult) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" podría estar repetido: el último registrado es "+codCorto(state.tipo,ult)+".");
+  R.dupCod=false;
+  if(!mu && !d.fijo && R.cod>=1){
+    var sug=sugCod(state.tipo), ult=ultCod(state.tipo), gen=deGenerador(state.tipo);
+    if(d.codEdit && R.cod!==sug) R.warn.push("Cambiaste el correlativo sugerido ("+codCorto(state.tipo,sug)+(gen?", el de su generador":"")+").");
+    R.dupCod = existeCod(state.tipo,R.cod);
+    if(R.dupCod) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" ya está registrado en este frente y material.");
+    else if(d.codEdit && !gen && R.cod<=ult) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" podría estar repetido: el último registrado es "+codCorto(state.tipo,ult)+".");
   }
   R.dupN=false;
   if(usaNEns(state.tipo) && !d.fijo && R.capa && d.material && R.nEns>=1){
@@ -898,17 +937,20 @@ function computeTexto(){
   var fr=getFrente(state.frente);
   if(!fr || !state.tipo || !state.d) return null;
   var R=evaluar(); if(!R.ok) return null;
-  var d=state.d, t=cfg.tipos[state.tipo], mu=esMuestra(state.tipo);
+  var d=state.d, t=cfg.tipos[state.tipo], mu=false;
   return ["FECHA: "+fechaTxt(fechaActual()),
           "TURNO: "+state.turno,
           "PROYECTO: "+fr.nombre,
+          d.estructura?"ESTRUCTURA: "+d.estructura:null,
           R.capa?"CAPA: "+R.capa:null,
           "MATERIAL: "+d.material,
+          d.evalMat?"PROPÓSITO: EVALUACIÓN DE MATERIAL":null,
           "ENSAYO: "+t.largo+(t.norma?" ("+t.norma+")":""),
           str(d.procedencia)?"PROCEDENCIA: "+str(d.procedencia).replace(/\s+/g," "):null,
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
           !mu&&R.nEns>=1?"N° ENSAYO: "+R.nEns:null,
           state.pend?"REFERENCIA: "+(state.pend.cod||"MUESTRA "+fechaTxt(state.pend.d)):null,
+          sesion?"REALIZADO POR: "+sesion.nombre:null,
           d.conDetalle&&str(d.detalle)?"DETALLE: "+str(d.detalle).replace(/\s+/g," ").toUpperCase():null,
           R.asoc.length?"ENSAYOS PENDIENTES: "+R.asoc.map(function(k){ return cfg.tipos[k].abrev; }).join(", "):null]
     .filter(function(x){ return x!=null; }).join("\n");
@@ -1005,10 +1047,10 @@ function nombreFoto(f){
 }
 function subirEnsayo(){
   var texto=computeTexto(); if(!texto) return;
-  var sig=firmaSubida(texto), d=state.d, R=evaluar(), mu=esMuestra(state.tipo);
+  var sig=firmaSubida(texto), d=state.d, R=evaluar(), mu=false;
   if(!conectado()){ state.subida={sig:sig,estado:"error",msg:"Sin sesión: vuelve a ingresar con tu contraseña."}; render(); return; }
   var alertas=[];
-  if(!mu && !d.fijo && d.codEdit && R.cod<=ultCod(state.tipo)) alertas.push("El correlativo "+codCorto(state.tipo,R.cod)+" podría estar ya registrado.");
+  if(!mu && !d.fijo && (R.dupCod || (d.codEdit && !deGenerador(state.tipo) && R.cod<=ultCod(state.tipo)))) alertas.push("El correlativo "+codCorto(state.tipo,R.cod)+" podría estar ya registrado.");
   if(R.dupN) alertas.push("Ya existe un ensayo N° "+R.nEns+" en la capa "+R.capa+".");
   if(alertas.length && !confirm(alertas.join("\n")+"\n\n¿Subir de todas formas?")) return;
   prefs.turno=state.turno;
@@ -1016,14 +1058,14 @@ function subirEnsayo(){
   if(prN && procedenciasDe(getFrente(state.frente)).indexOf(prN)<0){ prefs.procsExtra=uniq([prN].concat(arrStr(prefs.procsExtra))).slice(0,12); }
   savePrefs();
   var t=Date.now(), nE=R.nEns>=1?R.nEns:0, uid=newId();
-  var form={v:4,frente:state.frente,tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
+  var form={v:4,frente:state.frente,estructura:d.estructura||"",evalMat:!!d.evalMat,tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
             fecha:fechaActual(),turno:state.turno,cod:mu?"":fmtCod(state.tipo,R.cod),codN:mu?0:R.cod,t:t,asoc:R.asoc,
             padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:""};
   var it={uid:uid,texto:texto,campos:camposSubida(texto),nombreFoto:nombreFoto(form),
           foto:state.foto?{data:state.foto.data,mime:state.foto.mime}:null,creado:t,turno:state.turno,fecha:form.fecha,
           form:JSON.stringify(form)};
   d.fijo={cod:mu?NaN:R.cod,nEns:nE,asoc:R.asoc};
-  registrarUso({u:uid,k:state.tipo,n:form.codN,t:t,f:form.frente,m:form.material,pr:form.procedencia,c:form.capa,e:nE,
+  registrarUso({u:uid,k:state.tipo,n:form.codN,t:t,f:form.frente,es:form.estructura,em:form.evalMat,m:form.material,pr:form.procedencia,c:form.capa,e:nE,
                 cod:form.cod,d:form.fecha,tu:form.turno,a:form.asoc,p:form.padre});
   state.subida={sig:sig,estado:"subiendo"}; render();
   enviarItem(it).then(function(j){
@@ -1040,6 +1082,21 @@ function subirEnsayo(){
     }
     render();
   });
+}
+
+/* registra que en el turno no hubo actividades en el frente (sale en el RD) */
+function sinActividades(fr){
+  var est=state.d.estructura, f=fechaActual();
+  if(!confirm("¿Registrar “Sin actividades durante el turno” en "+(fr.corto||fr.nombre)+(est?" · "+est:"")+"?\n"+fechaTxt(f)+" · turno "+state.turno.toLowerCase())) return;
+  if(!conectado()){ alert("Sin sesión: vuelve a ingresar con tu contraseña."); return; }
+  var t=Date.now();
+  var texto=["FECHA: "+fechaTxt(f),"TURNO: "+state.turno,"PROYECTO: "+fr.nombre,est?"ESTRUCTURA: "+est:null,
+             "ACTIVIDAD: SIN ACTIVIDADES DURANTE EL TURNO",sesion?"REALIZADO POR: "+sesion.nombre:null].filter(Boolean).join("\n");
+  var it={uid:newId(),texto:texto,campos:camposSubida(texto),nombreFoto:"",foto:null,creado:t,turno:state.turno,fecha:f,
+          form:JSON.stringify({v:4,tipo:"SIN_ACT",frente:fr.id,estructura:est||"",fecha:f,turno:state.turno,t:t})};
+  enviarItem(it).then(function(){ state.flash="Registrado: sin actividades en "+(fr.corto||fr.nombre)+"."; render(); },
+    function(e){ if(e.server){ alert("No se pudo registrar: "+e.message); return; }
+      cola.push(it); guardarCola(); state.flash="Sin señal: quedó en cola y se subirá solo."; render(); });
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1123,17 +1180,18 @@ function codigoCard(){
   var d=state.d, k=state.tipo, R=evaluar();
   var c=sec(usaNEns(k)?"Correlativo, capa y N° de ensayo":"Correlativo y capa");
   var pc=partesCod(k);
-  var val = d.fijo ? String(d.fijo.cod) : d.codEdit ? d.codN : String(sigCod(k));
+  var val = d.fijo ? String(d.fijo.cod) : d.codEdit ? d.codN : String(sugCod(k));
   var i=el("input",{type:"text",inputmode:"numeric",value:val,"data-fk":"codN",autocomplete:"off","aria-label":"Número del correlativo",class:"codin"});
   if(d.fijo) i.setAttribute("readonly","");
   i.addEventListener("input",function(e){
     var v=String(e.target.value).replace(/\D/g,"").slice(0,6);
     if(v!==e.target.value) e.target.value=v;
-    d.codEdit = v!==String(sigCod(k)); d.codN=v; render();
+    d.codEdit = v!==String(sugCod(k)); d.codN=v; render();
   });
   var codRow=el("div",{class:"cod"},[el("span",{class:"pre"},[pc[0]]),i,pc[1]?el("span",{class:"pre"},[pc[1]]):null]);
-  if(d.codEdit && !d.fijo) codRow.appendChild(el("button",{class:"ib",type:"button",onclick:function(){ d.codEdit=false; d.codN=""; render(); }},["↺ "+padN(sigCod(k),ent(cfg.digCod)||3)]));
-  c.appendChild(fieldWrap("Correlativo del ensayo",codRow,d.fijo?"Ya se usó en el ensayo subido.":"Se asume el siguiente que corresponde. Puedes editarlo."));
+  if(d.codEdit && !d.fijo) codRow.appendChild(el("button",{class:"ib",type:"button",onclick:function(){ d.codEdit=false; d.codN=""; render(); }},["↺ "+padN(sugCod(k),ent(cfg.digCod)||3)]));
+  c.appendChild(fieldWrap("Correlativo del ensayo",codRow,d.fijo?"Ya se usó en el ensayo subido.":
+    deGenerador(k)?"Se toma el número de su generador ("+codCorto(state.pend.pt,state.pend.n)+"). Puedes editarlo.":"Se asume el siguiente que corresponde. Puedes editarlo."));
   c.appendChild(capaCtl());
 
   if(!usaNEns(k)){ R.warn.forEach(function(w){ c.appendChild(noteBox([w],"")); }); return c; }
@@ -1161,7 +1219,7 @@ function codigoCard(){
 }
 function resumenMuestra(r){
   var fr=getFrente(r.f);
-  return [fr?(fr.corto||fr.nombre):"",r.c?"Capa "+r.c:"",cap(r.m),r.pr||""].filter(Boolean).join(" · ");
+  return [fr?(fr.corto||fr.nombre):"",r.es?cap(r.es):"",r.c?"Capa "+r.c:"",cap(r.m),r.em?"Evaluación de material":"",r.pr||""].filter(Boolean).join(" · ");
 }
 function renderMain(app){
   cabecera(app);
@@ -1182,11 +1240,16 @@ function renderMain(app){
     card.appendChild(fieldWrap("Frente / proyecto",selectCtl(state.frente,cfg.frentes.map(function(f){return f.id;}),function(id){ var f=getFrente(id); return f?(f.corto||f.nombre):id; },function(v){
       state.frente=v; prefs.frente=v; savePrefs(); resetForm(true); render();
     },"Elige el frente…")));
+    if(fr && (fr.estructuras||[]).length) card.appendChild(fieldWrap("Estructura",selectCtl(d.estructura,fr.estructuras.map(function(x){ return x.nombre; }),null,function(v){
+      d.estructura=v; trasCambio(); render(); },"Elige la estructura…")));
+    if(fr) card.appendChild(el("button",{type:"button",class:"mini",style:"margin:-4px 0 14px",onclick:function(){ sinActividades(fr); }},["Sin actividades en este turno"]));
     if(fr){
       card.appendChild(fieldWrap("Material",selectCtl(d.material,materialesDe(fr),null,function(v){
         d.material=v; d.nEdit=false; d.nEns=""; d.asocOff=[];
         if(state.tipo && ensayosDisp(fr,v).indexOf(state.tipo)<0) state.tipo="";
         trasCambio(); render(); },"Elige el material…")));
+      if(d.material) card.appendChild(el("button",{type:"button",class:"ptog"+(d.evalMat?" on":""),onclick:function(){ d.evalMat=!d.evalMat; d.codEdit=false; d.codN=""; trasCambio(); render(); }},[
+        el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,["Evaluación de material"]),el("small",null,["El correlativo usa "+(cfg.codEM||"EM")+" en lugar del código del material"])])]));
     }
     app.appendChild(card);
     if(!fr) return;
@@ -1195,8 +1258,7 @@ function renderMain(app){
   }
   if(!state.tipo) return;
   if(state.pend && puedeProctor()) app.appendChild(el("div",{class:"card"},[proctorToggle()]));
-  if(!esMuestra(state.tipo)) app.appendChild(codigoCard());
-  else app.appendChild(el("div",{class:"card"},[capaCtl()]));
+  app.appendChild(codigoCard());
   /* la procedencia va después del correlativo; en un pendiente viene del ensayo que lo originó */
   var pcx=procedenciaCtl(fr); if(pcx) app.appendChild(el("div",{class:"card"},[pcx]));
   app.appendChild(detalleCard());
@@ -1219,7 +1281,7 @@ function registrarPend(p,k){
   state.frente=r.f; state.tipo="";
   resetForm(true);
   state.tipo=k;
-  state.d.material=r.m; state.d.procedencia=r.pr||""; state.d.capa=r.c||"";
+  state.d.material=r.m; state.d.procedencia=r.pr||""; state.d.capa=r.c||""; state.d.estructura=r.es||""; state.d.evalMat=!!r.em;
   state.pend={u:r.u,cod:r.cod,n:r.n,pt:r.k,d:r.d,k:k,r:r};
   state.view="main"; render(); window.scrollTo(0,0);
 }
@@ -1240,7 +1302,7 @@ function omitirPend(p,k){
 }
 function tarjetaPend(p){
   var r=p.r, t=cfg.tipos[r.k];
-  var titulo = esMuestra(r.k) ? "Muestra" : codCorto(r.k,r.n);
+  var titulo = codCorto(r.k,r.n);
   var c=el("div",{class:"pcard"});
   c.appendChild(el("div",{class:"ph"},[el("b",null,[titulo]),
     el("span",{class:"pk"},[cap(t.corto)]),edadTag(r.d)]));
@@ -1284,7 +1346,7 @@ function renderPend(app){
     P.filter(function(p){ return p.falta.indexOf(k)>=0; }).forEach(function(p){
       var r=p.r;
       card.appendChild(el("button",{type:"button",class:"prow",onclick:function(){ registrarPend(p,k); }},[
-        el("span",{class:"pr-a"},[el("b",null,[esMuestra(r.k)?"Muestra":codCorto(r.k,r.n)]),el("small",null,[resumenMuestra(r)])]),
+        el("span",{class:"pr-a"},[el("b",null,[codCorto(r.k,r.n)]),el("small",null,[resumenMuestra(r)])]),
         edadTag(r.d),el("span",{class:"go"},["Registrar "+cfg.tipos[k].abrev+" ›"])]));
     });
   } else P.forEach(function(p){ card.appendChild(tarjetaPend(p)); });
@@ -1315,10 +1377,11 @@ function tarjetaLib(it,sub,pendiente){
       pen=lineaDe(t,"ENSAYOS PENDIENTES");
   var turno=it.turno==="NOCHE"?"☾ Noche":it.turno==="DÍA"?"☀ Día":"";
   var kids=[el("div",{class:"tx"},[
-    el("b",null,[[cod,tipo].filter(Boolean).join(" · ")||"Ensayo",pendiente?el("span",{class:"tag"},["POR SUBIR"]):null,
+    el("b",null,[[cod,tipo].filter(Boolean).join(" · ")||cap(lineaDe(t,"ACTIVIDAD"))||"Ensayo",pendiente?el("span",{class:"tag"},["POR SUBIR"]):null,
       nEns?el("span",{class:"tag tok"},["N° "+nEns]):null]),
     el("span",null,[[capa?"Capa "+capa:"",mat,proc].filter(Boolean).join(" · ")]),
     el("span",null,[[est,sub,turno].filter(Boolean).join(" · ")]),
+    lineaDe(t,"REALIZADO POR")?el("span",null,["👤 "+lineaDe(t,"REALIZADO POR")]):null,
     ref?el("span",null,["↳ de "+ref]):null,
     pen?el("span",null,["⏳ dejó: "+pen]):null,
     el("button",{class:"mini",type:"button",onclick:function(){ duplicar(it); }},["⧉ Copiar datos"]),
@@ -1353,6 +1416,83 @@ function duplicar(it){
   state.origen=f.cod||it.id||"este celular";
   state.view="main"; render(); window.scrollTo(0,0);
 }
+/* ════ Filas para pegar en el RD de Excel (columnas A–L de cada hoja de frente) ════ */
+var MENORES=["de","del","la","las","el","los","y","a","en","por","con"];
+function titulo(s){
+  return String(s||"").toLowerCase().split(/(\s+)/).map(function(w,i){
+    if(/^\s+$/.test(w)||!w) return w;
+    if(/\d/.test(w)) return w.toUpperCase();
+    if(i>0 && MENORES.indexOf(w)>=0) return w;
+    return w.charAt(0).toUpperCase()+w.slice(1);
+  }).join("");
+}
+function recDeForm(f){ var hit=null; todosUsos().forEach(function(u){ if(u.t===f.t && u.k===f.tipo) hit=u; }); return hit; }
+/* lo que falta del árbol de pendientes de un generador hasta el momento t (incluye lo que deja el Proctor) */
+function faltanHasta(root,hastaT){
+  var regs=todosUsos(), out=[];
+  function expandir(k,pt){ if(!cfg.tipos[k]) return; out.push(cap(nombreSlot(pt,k))); cfg.tipos[k].asoc.forEach(function(x){ expandir(x,k); }); }
+  function visitar(rec){
+    var aj=ajustesLoc[rec.u]||{}, om={};
+    [rec.o||{},aj.o||{}].forEach(function(o){ Object.keys(o).forEach(function(k){ om[k]=1; }); });
+    uniq((rec.a||[]).concat(rec.x||[],aj.x||[])).forEach(function(k){
+      if(om[k]) return;
+      var h=regs.filter(function(r){ return r.p===rec.u && r.k===k && r.t<=hastaT; })[0];
+      if(h) visitar(h); else expandir(k,rec.k);
+    });
+  }
+  visitar(root);
+  return out;
+}
+function raizDe(rec){ var regs=todosUsos(), r=rec, n=0;
+  while(r && r.p && n<10){ var p=null; regs.forEach(function(x){ if(x.u===r.p) p=x; }); if(!p) break; r=p; n++; } return r; }
+function obsRD(f,texto){
+  var t=cfg.tipos[f.tipo], rec=recDeForm(f), det=lineaDe(texto,"DETALLE"), base="";
+  var lista=function(a){ return "Falta: "+a.join(", ")+"."; };
+  if(!rec){ base = f.padre ? "" : (t&&t.nEns?"Ensayo de campo":t&&t.muestra?"Muestreo":"Ensayo en laboratorio"); }
+  else if(!rec.p){
+    var pref = t&&t.nEns ? "Ensayo de campo" : t&&t.muestra ? "Muestreo" : "Ensayo en laboratorio";
+    var fa=faltanHasta(rec,rec.t);
+    base = fa.length ? pref+" - "+lista(fa) : pref;
+  } else {
+    var fa2=faltanHasta(raizDe(rec),rec.t);
+    base = fa2.length ? lista(fa2) : "ENSAYO TERMINADO";
+  }
+  return [base,det?cap(det):""].filter(Boolean).join(" / ");
+}
+function filaRD(it){
+  var f=formDe(it)||{}, fr=getFrente(f.frente), t=cfg.tipos[f.tipo];
+  var fecha=fechaTxt(f.fecha||it.fecha), turno=(f.turno||it.turno)==="NOCHE"?"Noche":"Día";
+  if(f.tipo==="SIN_ACT") return [fecha,turno,"Sin actividades durante el turno","","","","","","","","",""];
+  var estr = f.estructura ? titulo(f.estructura) : (fr?(fr.corto||fr.nombre):lineaDe(it.texto,"PROYECTO"));
+  var ens = t ? (t.muestra?"MUESTREO":t.abrev) : "";
+  return [fecha,turno,estr,ens,"","",f.capa||"---",titulo(f.material||lineaDe(it.texto,"MATERIAL")),
+          titulo(f.procedencia||lineaDe(it.texto,"PROCEDENCIA"))||"---",f.cod||lineaDe(it.texto,"CORRELATIVO")||"---",obsRD(f,it.texto),""];
+}
+function filasRD(items,frenteId){
+  return items.filter(function(it){ var f=formDe(it); return f && f.frente===frenteId; })
+    .sort(function(a,b){ return ((formDe(a)||{}).t||0)-((formDe(b)||{}).t||0); })
+    .map(filaRD);
+}
+function tsv(filas){ return filas.map(function(r){ return r.map(function(c){ return String(c==null?"":c).replace(/[\t\r\n]+/g," "); }).join("\t"); }).join("\n"); }
+function cajaRD(){
+  var frentes=uniq(dia.items.map(function(it){ var f=formDe(it); return f&&f.frente; }).filter(Boolean));
+  if(!frentes.length) return null;
+  var box=el("div",{class:"rdbox"},[el("div",{class:"glbl"},["Copiar para el RD (Excel)"]),
+    el("div",{class:"fdesc",style:"margin:-4px 0 10px"},["Copia las filas del día de ese frente. En Excel, haz clic en la columna A de la primera fila libre y pega."])]);
+  frentes.forEach(function(id){
+    var fr=getFrente(id), filas=filasRD(dia.items,id), nm=fr?(fr.corto||fr.nombre):id;
+    var b=el("button",{class:"b-sec rdbtn",type:"button"},[el("span",null,["📋 "+nm]),el("small",null,[filas.length+(filas.length===1?" fila":" filas")])]);
+    b.addEventListener("click",function(){
+      copyText(tsv(filasRD(dia.items,id)),function(g){
+        b.firstChild.textContent=g?"✓ Copiado: "+nm:"⚠ No se pudo copiar"; b.className=g?"b-ok rdbtn":"b-warn rdbtn";
+        setTimeout(function(){ b.firstChild.textContent="📋 "+nm; b.className="b-sec rdbtn"; },2500);
+      });
+    });
+    box.appendChild(b);
+  });
+  return box;
+}
+
 function renderDia(app){
   cabecera(app);
   if(!conectado()){ app.appendChild(el("div",{class:"card"},[el("div",{class:"empty"},["Ingresa con tu contraseña para ver los ensayos del día."])])); return; }
@@ -1378,9 +1518,10 @@ function renderDia(app){
   dia.items.slice().reverse().forEach(function(it){ card.appendChild(tarjetaLib(it,[it.hora,it.id].filter(Boolean).join(" · "),false)); });
   if(dia.estado==="ok") card.appendChild(el("div",{class:"stat"},[dia.items.length+(dia.items.length===1?" ensayo registrado":" ensayos registrados")]));
   if(dia.estado==="ok" && dia.items.length){
-    var bRep=el("button",{class:"b-pri",type:"button"},["⬇ Reporte diario (.xlsx)"]);
+    var bRep=el("button",{class:"b-pri",type:"button"},["⬇ RD y panel fotográfico (.xlsx)"]);
     bRep.addEventListener("click",function(){ generarReporte(dia.fecha,bRep); });
     card.appendChild(el("div",{class:"btns"},[bRep]));
+    var rd=cajaRD(); if(rd) card.appendChild(rd);
   }
   app.appendChild(card);
   if(dia.hoja) app.appendChild(el("a",{class:"lnk",href:dia.hoja,target:"_blank",rel:"noopener"},["Abrir la hoja de cálculo completa ↗"]));
@@ -1425,12 +1566,14 @@ function interpretarLib(it){
     frente:fr?(fr.corto||fr.nombre):(lineaDe(t,"PROYECTO")||lineaDe(t,"ESTRUCTURA")),
     ensayo:tipo?cfg.tipos[tipo].corto:lineaDe(t,"ENSAYO").replace(/\s*\([^)]*\)$/,""),
     norma:(/\(([^)]*)\)$/.exec(lineaDe(t,"ENSAYO"))||[])[1]||"",
-    material:lineaDe(t,"MATERIAL")||f.material||"", procedencia:lineaDe(t,"PROCEDENCIA")||f.procedencia||""};
+    material:lineaDe(t,"MATERIAL")||f.material||"", procedencia:lineaDe(t,"PROCEDENCIA")||f.procedencia||"",
+    por:lineaDe(t,"REALIZADO POR"), detalle:lineaDe(t,"DETALLE")};
 }
 var COLS_REP=[["N°",5,function(l,i){ return i+1; }],["TURNO",8,function(l){ return l.turno; }],["PROYECTO",20,function(l){ return l.frente; }],
   ["CAPA",9,function(l){ return l.capa; }],["MATERIAL",26,function(l){ return l.material; }],["ENSAYO",22,function(l){ return l.ensayo; }],
   ["NORMA",11,function(l){ return l.norma; }],["PROCEDENCIA",16,function(l){ return l.procedencia; }],
   ["CORRELATIVO",22,function(l){ return l.cod; }],["N° ENSAYO",9,function(l){ return l.nEns; }],["REFERENCIA",22,function(l){ return l.ref; }],
+  ["REALIZADO POR",16,function(l){ return l.por; }],["DETALLE",24,function(l){ return l.detalle; }],
   ["HORA",7,function(l){ return l.hora; }],["ID",13,function(l){ return l.id; }]];
 var COLW_PF={A:2,B:2.4,C:9.6,D:13.6,E:11.4,F:11.4,G:6.6,H:9.6,I:13.6,J:11.4,K:11.4,L:2.4};
 var AZUL="FF134E4A", CELESTE="FFCCFBF1", FUENTE="Aptos Narrow";
@@ -1440,29 +1583,33 @@ function letra(k){ return String.fromCharCode(64+k); }
 function pxCol(w){ return Math.floor(w*7+5); }
 function semana(d){ var ini=new Date(d.getFullYear(),0,1), yday=Math.round((d-ini)/864e5), wd=(d.getDay()+6)%7; return Math.floor((yday+7-wd)/7); }
 
+/* Reporte diario en el formato del RD del laboratorio:
+   una hoja "RD. <código>" por frente (columnas A–L) y la hoja "R.Fotogr. Laboratorio" con las fotos de todos los frentes */
+var FUENTE_RD="Arial", GRIS="FFF2F2F2";
+var COLW_RD={A:13,B:12.3,C:26.5,D:19.5,E:0,F:13,G:17.2,H:26,I:20.7,J:31.8,K:46.5,L:27};
+var CAB_RD=["FECHA","TURNO","ESTRUCTURA","TIPO DE ENSAYO","CODIGO","N.º REGISTRO","CAPA","TIPO DE MATERIAL","CANTERA","CÓDIGO DE MUESTRA / ENSAYO REALIZADO","OBSERVACIONES","ESTATUS"];
+var COLW_FOTO={A:10.8,B:13,C:13,D:13,E:18.2,F:13,G:10.2,H:18.2,I:15.5,J:18.2,K:13,L:13,M:13,N:10.8,O:13,P:13,Q:13};
+var SLOTS_FOTO=[["A","F"],["G","K"],["L","Q"]];
+var BORDE_M={top:{style:"medium"},left:{style:"medium"},bottom:{style:"medium"},right:{style:"medium"}};
+
 function armarReporte(fecha,items){
   var R=cfg.reporte, d=fechaDe(fecha);
-  var dif=Math.round((d-fechaDe(R.fechaRef||fecha))/864e5);
-  var numRep=(Number(R.numRef)||0)+dif;
-  var dd=pad2(d.getDate())+"/"+pad2(d.getMonth()+1)+"/"+String(d.getFullYear()).slice(-2);
-  var libs=items.map(interpretarLib);
-  if(!libs.length) return Promise.reject(new Error("No hay ensayos ese día."));
-  libs.sort(function(a,b){ return String(a.hora).localeCompare(String(b.hora)); });
-  var nFoto=0, conFoto=[];
-  libs.forEach(function(l){ if(l.foto){ nFoto++; l.nFoto=pad2(nFoto); conFoto.push(l); } });
+  var regs=items.map(function(it){ return {it:it,f:formDe(it)||{}}; }).filter(function(x){ return x.f.frente; })
+    .sort(function(a,b){ return (a.f.t||0)-(b.f.t||0); });
+  if(!regs.length) return Promise.reject(new Error("No hay registros ese día."));
+  var fotos=regs.filter(function(x){ return x.it.fotoData; });
   var wb=new ExcelJS.Workbook(); wb.creator="Laboratorio CQC";
-  var dims=conFoto.map(function(l){ return new Promise(function(res){ var im=new Image();
-    im.onload=function(){ l.fw=im.naturalWidth; l.fh=im.naturalHeight; res(); }; im.onerror=function(){ l.foto=null; res(); };
-    im.src="data:image/jpeg;base64,"+l.foto; }); });
+  var dims=fotos.map(function(x){ return new Promise(function(res){ var im=new Image();
+    im.onload=function(){ x.fw=im.naturalWidth; x.fh=im.naturalHeight; res(); }; im.onerror=function(){ x.malo=true; res(); };
+    im.src="data:image/jpeg;base64,"+x.it.fotoData; }); });
   return Promise.all(dims).then(function(){ return Promise.all([traerImg("logo-izq.jpg"),traerImg("logo-der.png")]); })
   .then(function(logos){
-    var x={L1:logos[0]?wb.addImage({base64:logos[0],extension:"jpeg"}):null,L2:logos[1]?wb.addImage({base64:logos[1],extension:"png"}):null,
-           R:R,numRep:numRep,dd:dd,d:d};
-    hojaTabla(wb,libs,x);
-    hojaFotos(wb,x,conFoto.filter(function(l){ return !!l.foto; }));
+    var x={L1:logos[0]?wb.addImage({base64:logos[0],extension:"jpeg"}):null,L2:logos[1]?wb.addImage({base64:logos[1],extension:"png"}):null,R:R,d:d,fecha:fecha};
+    uniq(regs.map(function(r){ return r.f.frente; })).forEach(function(id){ hojaRD(wb,id,regs.filter(function(r){ return r.f.frente===id; }),x); });
+    hojaPanel(wb,regs,fotos.filter(function(f){ return !f.malo; }),x);
     return wb.xlsx.writeBuffer();
   }).then(function(buf){
-    return {blob:new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),nombre:R.codigo+"-"+numRep+"_"+fecha+".xlsx"};
+    return {blob:new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),nombre:"RD.LABORATORIO_"+fecha+".xlsx"};
   });
 }
 function traerImg(url){
@@ -1472,89 +1619,117 @@ function traerImg(url){
 }
 function estilo(cell,o){
   o=o||{};
-  cell.font={name:FUENTE,size:o.size||11,bold:!!o.bold,color:o.color?{argb:o.color}:undefined};
+  cell.font={name:o.font||FUENTE_RD,size:o.size||10,bold:!!o.bold,color:o.color?{argb:o.color}:undefined};
   cell.alignment={horizontal:o.h||"center",vertical:o.v||"middle",wrapText:o.wrap!==false};
   if(o.fill) cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:o.fill}};
-  if(o.border) cell.border=BORDE;
+  if(o.border) cell.border=o.border===true?BORDE:o.border;
 }
 function celda(ws,ref,valor,o){
   var p=ref.split(":"); if(p.length>1) ws.mergeCells(ref);
   var c=ws.getCell(p[0]); c.value=valor; estilo(c,o);
-  if(o && o.border && p.length>1){
-    var a=ws.getCell(p[0]), b=ws.getCell(p[1]);
-    for(var r=a.row;r<=b.row;r++) for(var k=a.col;k<=b.col;k++) ws.getCell(r,k).border=BORDE;
+  if(o && o.border){
+    var a=ws.getCell(p[0]), b=ws.getCell(p[1]||p[0]), bd=o.border===true?BORDE:o.border;
+    for(var r=a.row;r<=b.row;r++) for(var k=a.col;k<=b.col;k++) ws.getCell(r,k).border=bd;
   }
   return c;
 }
-function pagina(ws,ultimaCol,ultimaFila,horizontal){
-  ws.pageSetup={paperSize:9,orientation:horizontal?"landscape":"portrait",fitToPage:true,fitToWidth:1,fitToHeight:0,
-    horizontalCentered:true,printArea:"B1:"+ultimaCol+ultimaFila,margins:{left:0.39,right:0.39,top:0.59,bottom:0.59,header:0.3,footer:0.3}};
+function nombreHoja(wb,base){ var n=base.replace(/[\\\/\?\*\[\]:]/g," ").slice(0,31), i=2;
+  while(wb.getWorksheet(n)){ n=(base.slice(0,28)+" "+i).slice(0,31); i++; } return n; }
+
+/* hoja RD de un frente: mismas columnas que el Excel del laboratorio */
+function hojaRD(wb,frenteId,regs,x){
+  var fr=getFrente(frenteId), R=x.R;
+  var ws=wb.addWorksheet(nombreHoja(wb,"RD. "+(fr?(codigoLimpio(fr.codigo)||fr.corto):frenteId)),{views:[{showGridLines:false}]});
+  Object.keys(COLW_RD).forEach(function(k){ var c=ws.getColumn(k); c.width=COLW_RD[k]||2; if(!COLW_RD[k]) c.hidden=true; });
+  [null,21,null,17.25,13,16,23.15,28.5,15,14.5].forEach(function(h,i){ if(h) ws.getRow(i+1).height=h; });
+  if(x.L1!=null) ws.addImage(x.L1,{tl:{col:0,row:0.2},ext:{width:190,height:48}});
+  if(x.L2!=null) ws.addImage(x.L2,{tl:{col:10.4,row:0.4},ext:{width:170,height:35}});
+  celda(ws,"G2","REPORTE DIARIO DE LABORATORIO",{size:16,bold:true,font:"Aptos Narrow",wrap:false});
+  celda(ws,"A4:B4","NOMBRE DEL PROYECTO: ",{bold:true,h:"left",wrap:false});
+  celda(ws,"C4:F4","\""+titulo(fr?fr.nombre:"")+"\"",{h:"left",wrap:false});
+  celda(ws,"A5","CLIENTE:",{bold:true,h:"left",wrap:false});
+  celda(ws,"B5:D5",R.cliente,{h:"left",wrap:false});
+  CAB_RD.forEach(function(t,i){ var L=letra(i+1); celda(ws,L+"8:"+L+"10",t,{bold:true,border:BORDE_M}); });
+  var r=11;
+  regs.forEach(function(g){
+    var fila=filaRD(g.it);
+    ws.getRow(r).height=30;
+    fila.forEach(function(v,i){
+      var c=ws.getCell(r,i+1);
+      if(i===0){ var fd=fechaDe(g.f.fecha||x.fecha); c.value=new Date(Date.UTC(fd.getFullYear(),fd.getMonth(),fd.getDate())); c.numFmt="d-mmm-yy"; }
+      else { c.value=v===""?null:v; if(i===6||i===9) c.numFmt="@"; }
+      estilo(c,{border:true,h:i===10?"left":"center"});
+    });
+    var lin=Math.max(1,Math.ceil(String(fila[10]).length/48),Math.ceil(String(fila[7]).length/26));
+    ws.getRow(r).height=Math.max(30,lin*13+6);
+    r++;
+  });
+  ws.pageSetup={paperSize:9,orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,
+    printArea:"A1:L"+Math.max(r-1,11),printTitlesRow:"8:10",margins:{left:0.3,right:0.3,top:0.5,bottom:0.5,header:0.3,footer:0.3}};
+}
+
+/* título de cada foto, como en el panel del laboratorio:
+   Ensayo Granulometría -RISTCH-Capa 23-RMA (ST.CA.RISTCH.G.RMA.130) */
+function tituloFoto(f,texto){
+  var t=cfg.tipos[f.tipo], fr=getFrente(f.frente);
+  var nom = t ? (t.muestra?"Muestreo":"Ensayo "+titulo(t.corto)) : titulo(lineaDe(texto,"ENSAYO"));
+  var mat = f.evalMat ? (cfg.codEM||"EM") : (codMaterial(f.material)||titulo(f.material));
+  var resto=[fr?codigoLimpio(fr.codigo):"", f.capa?"Capa "+f.capa:"", mat].filter(Boolean);
+  return nom+(resto.length?" -"+resto.join("-"):"")+(f.cod?" ("+f.cod+")":"");
+}
+function hojaPanel(wb,regs,fotos,x){
+  var R=x.R, ws=wb.addWorksheet("R.Fotogr. Laboratorio",{views:[{showGridLines:false}]});
+  Object.keys(COLW_FOTO).forEach(function(k){ ws.getColumn(k).width=COLW_FOTO[k]; });
+  [20.15,20.15,20.15,10,30,30,20.15,20.15,10].forEach(function(h,i){ ws.getRow(i+1).height=h; });
+  celda(ws,"A1:D3","",{border:true});
+  if(x.L1!=null) ws.addImage(x.L1,{tl:{col:0.15,row:0.25},ext:{width:250,height:62}});
+  celda(ws,"E1:M3","Reporte diario de control de calidad\nREGISTRO FOTOGRÁFICO",{size:14,bold:true,border:true});
+  celda(ws,"N1:O1","   Código:",{size:11,h:"left",border:true}); celda(ws,"P1:Q1",R.codigo,{size:11,h:"left",border:true});
+  celda(ws,"N2:O2","   Revisión:",{size:11,h:"left",border:true}); celda(ws,"P2:Q2","",{size:11,h:"left",border:true});
+  celda(ws,"N3:O3","   Fecha:",{size:11,h:"left",border:true}); celda(ws,"P3:Q3",fechaTxt(x.fecha),{size:11,h:"left",border:true});
+  var frentes=uniq(regs.map(function(g){ var fr=getFrente(g.f.frente); return fr?titulo(fr.corto||fr.nombre):""; }).filter(Boolean));
+  var tecnicos=uniq(regs.map(function(g){ return lineaDe(g.it.texto,"REALIZADO POR"); }).filter(Boolean));
+  var info=[["Proyecto",frentes.join(" / "),"Elaborado por (Supervisor de calidad)",R.responsable],
+            ["Cliente",R.cliente,"Elaborado por (Área de laboratorio)",tecnicos.join(", ")],
+            ["Unidad minera",R.unidad,"Fecha",fechaTxt(x.fecha)],
+            ["Charla de seguridad","","",""]];
+  info.forEach(function(f,i){ var r=5+i, o={size:11,h:"left",border:true};
+    celda(ws,"A"+r+":B"+r,f[0],o); celda(ws,"C"+r+":I"+r,f[1],o); celda(ws,"J"+r+":K"+r,f[2],o); celda(ws,"L"+r+":Q"+r,f[3],o); });
+  var r=10, FOTO_PT=30, FILAS_FOTO=10, alto=9*24, LIM=1750;   // la hoja se imprime reducida al ancho de la página
+  [["DÍA","TURNO DIA"],["NOCHE","TURNO NOCHE"]].forEach(function(tn){
+    var lista=fotos.filter(function(g){ return (g.f.turno||g.it.turno||"DÍA")===tn[0]; });
+    if(alto+25+FILAS_FOTO*FOTO_PT>LIM){ ws.getRow(r-1).addPageBreak(); alto=0; }
+    celda(ws,"A"+r+":Q"+r,tn[1],{size:14,bold:true}); ws.getRow(r).height=25; r++; alto+=25;
+    if(!lista.length){ celda(ws,"A"+r+":Q"+r,"Sin registro fotográfico en el turno.",{size:11,color:"FF6B7280"}); ws.getRow(r).height=20; r+=2; alto+=30; return; }
+    for(var i=0;i<lista.length;i+=3){
+      var bloque=FILAS_FOTO*FOTO_PT+42+36+8;
+      if(alto+bloque>LIM){ ws.getRow(r-1).addPageBreak(); alto=0; }
+      for(var k=r;k<r+FILAS_FOTO;k++) ws.getRow(k).height=FOTO_PT;
+      ws.getRow(r+FILAS_FOTO).height=21; ws.getRow(r+FILAS_FOTO+1).height=21;
+      ws.getRow(r+FILAS_FOTO+2).height=18; ws.getRow(r+FILAS_FOTO+3).height=18;
+      SLOTS_FOTO.forEach(function(sl,j){
+        var g=lista[i+j], c1=sl[0], c2=sl[1];
+        celda(ws,c1+r+":"+c2+(r+FILAS_FOTO-1),"",{border:true});
+        celda(ws,c1+(r+FILAS_FOTO)+":"+c2+(r+FILAS_FOTO+1),g?tituloFoto(g.f,g.it.texto):"------",{size:11,h:"left",fill:GRIS,border:true});
+        var det=g?lineaDe(g.it.texto,"DETALLE"):"";
+        celda(ws,c1+(r+FILAS_FOTO+2)+":"+c2+(r+FILAS_FOTO+3),"Descripción: "+(det?cap(det):""),{size:11,h:"left",v:"top",fill:GRIS,border:true});
+        if(g) ponerFotoPanel(wb,ws,g,c1,c2,r,r+FILAS_FOTO-1,FOTO_PT);
+      });
+      r+=FILAS_FOTO+4; ws.getRow(r).height=8; r++; alto+=bloque;
+    }
+    r++;
+  });
+  ws.pageSetup={paperSize:9,orientation:"portrait",fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,
+    printArea:"A1:Q"+Math.max(r,12),margins:{left:0.3,right:0.3,top:0.5,bottom:0.5,header:0.3,footer:0.3}};
   ws.headerFooter.oddFooter="&CPágina &P";
 }
-function hojaTabla(wb,ls,x){
-  var cols=COLS_REP, last=1+cols.length, LC=letra(last), R=x.R;
-  var ws=wb.addWorksheet("ENSAYOS",{views:[{showGridLines:false}]});
-  ws.getColumn(1).width=2;
-  cols.forEach(function(c,i){ ws.getColumn(i+2).width=c[1]; });
-  ws.getRow(1).height=20; ws.getRow(2).height=20;
-  if(x.L1!=null) ws.addImage(x.L1,{tl:{col:1,row:0.15},ext:{width:180,height:46}});
-  if(x.L2!=null) ws.addImage(x.L2,{tl:{col:Math.max(3,last-2),row:0.3},ext:{width:170,height:35}});
-  celda(ws,"B3:"+LC+"3","REPORTE DIARIO DE ENSAYOS DE LABORATORIO",{size:12,bold:true});
-  celda(ws,"B4:"+LC+"4","REGISTRO DE ENSAYOS",{bold:true,fill:AZUL,color:"FFFFFFFF",border:true});
-  celda(ws,"B5:"+LC+"5",R.codigo+"-"+x.numRep+"     ·     FECHA: "+x.dd+"     ·     SEMANA: "+semana(x.d)+"     ·     "+DIAS[x.d.getDay()],{h:"left",bold:true});
-  celda(ws,"B6:"+LC+"6","CONTRATISTA: "+R.contratista+"     ·     CLIENTE: "+R.cliente+"     ·     UNIDAD MINERA: "+R.unidad+"     ·     SUPERVISIÓN CQA: "+R.cqa,{h:"left",size:10});
-  var r=8;
-  cols.forEach(function(c,i){ celda(ws,letra(i+2)+r,c[0],{bold:true,fill:CELESTE,border:true,size:10}); });
-  ws.getRow(r).height=24; r++;
-  ls.forEach(function(l,i){
-    var maxLin=1;
-    cols.forEach(function(c,j){
-      var v=c[2](l,i), vacio = v==null || v==="";
-      var cell=celda(ws,letra(j+2)+r,vacio?"-":v,{border:true,size:10});
-      if(c[0]==="CORRELATIVO"||c[0]==="CAPA") cell.numFmt="@";
-      maxLin=Math.max(maxLin,Math.ceil(String(vacio?"-":v).length/(c[1]*1.05)));
-    });
-    ws.getRow(r).height=Math.max(16,maxLin*13+4); r++;
-  });
-  r++;
-  celda(ws,"B"+r+":"+letra(Math.min(last,8))+r,"TOTAL DE ENSAYOS: "+ls.length,{h:"left",bold:true,wrap:false});
-  r+=2;
-  celda(ws,"B"+r+":"+letra(Math.min(last,8))+r,"RESPONSABLE DE CALIDAD: "+R.responsable,{h:"left",bold:true,wrap:false});
-  pagina(ws,LC,r,true);
-}
-function hojaFotos(wb,x,fotos){
-  if(!fotos.length) return;
-  var ws=wb.addWorksheet("P. FOTOG.",{views:[{showGridLines:false}]});
-  Object.keys(COLW_PF).forEach(function(k){ ws.getColumn(k).width=COLW_PF[k]; });
-  ws.getRow(1).height=20; ws.getRow(2).height=20;
-  if(x.L1!=null) ws.addImage(x.L1,{tl:{col:2,row:0.15},ext:{width:180,height:46}});
-  if(x.L2!=null) ws.addImage(x.L2,{tl:{col:9,row:0.3},ext:{width:170,height:35}});
-  celda(ws,"E3:I3","REPORTE DIARIO DE ENSAYOS DE LABORATORIO",{size:12,bold:true});
-  celda(ws,"C4:F4","PANEL FOTOGRÁFICO:",{bold:true,h:"left",wrap:false});
-  var FILA=14.45, r=6, enPagina=6, POR_PAGINA=54;
-  for(var i=0;i<fotos.length;i+=2){
-    if(enPagina+17>POR_PAGINA){ ws.getRow(r-1).addPageBreak(); enPagina=0; }
-    enPagina+=17;
-    [fotos[i],fotos[i+1]].forEach(function(l,lado){
-      if(!l) return;
-      var c1=lado?"H":"C", c2=lado?"K":"F", cd=lado?"I":"D";
-      celda(ws,c1+r+":"+c2+(r+13),"",{border:true});
-      celda(ws,c1+(r+14)+":"+c1+(r+15),"FOTO "+l.nFoto+".-",{v:"top",h:"left",border:true,size:10,wrap:false});
-      celda(ws,cd+(r+14)+":"+c2+(r+15),[l.cod,l.ensayo,l.material.toLowerCase(),l.capa?"capa "+l.capa:"",l.nEns?"ensayo N° "+l.nEns:"",l.frente].filter(Boolean).join(", "),{v:"top",h:"left",border:true,size:10});
-      ponerFoto(wb,ws,l,c1,c2,r,r+13,FILA);
-    });
-    for(var k=r;k<r+16;k++) ws.getRow(k).height=FILA;
-    r+=17;
-  }
-  pagina(ws,"L",Math.max(r,8),false);
-}
-function ponerFoto(wb,ws,l,c1,c2,r1,r2,filaPt){
-  var anchos=[]; for(var k=colN(c1);k<=colN(c2);k++) anchos.push(pxCol(COLW_PF[letra(k)]));
+function ponerFotoPanel(wb,ws,g,c1,c2,r1,r2,filaPt){
+  var anchos=[]; for(var k=colN(c1);k<=colN(c2);k++) anchos.push(pxCol(COLW_FOTO[letra(k)]));
   var boxW=anchos.reduce(function(a,b){ return a+b; },0), filaPx=filaPt*96/72, boxH=(r2-r1+1)*filaPx;
-  var iw=l.fw||4, ih=l.fh||3, m=6, s=Math.min((boxW-2*m)/iw,(boxH-2*m)/ih), w=iw*s, h=ih*s;
+  var iw=g.fw||4, ih=g.fh||3, m=6, s=Math.min((boxW-2*m)/iw,(boxH-2*m)/ih), w=iw*s, h=ih*s;
   var offX=(boxW-w)/2, offY=(boxH-h)/2, col=colN(c1)-1, rest=offX, i=0;
   while(i<anchos.length && rest>anchos[i]){ rest-=anchos[i]; col++; i++; }
-  var id=wb.addImage({base64:l.foto,extension:"jpeg"});
+  var id=wb.addImage({base64:g.it.fotoData,extension:"jpeg"});
   ws.addImage(id,{tl:{col:col+rest/anchos[i],row:(r1-1)+offY/filaPx},ext:{width:w,height:h},editAs:"oneCell"});
 }
 
@@ -1638,10 +1813,12 @@ function renderConfig(app){
 
   /* correlativo */
   var ej=ejemploCod(C);
-  app.appendChild(secCard("Correlativo","Se arma con: prefijo · código del frente · código del ensayo · código del material · número. Cada combinación lleva su propio contador.",[
+  app.appendChild(secCard("Correlativo","Cada combinación frente · ensayo · material lleva su propio contador. Cada frente puede tener su propio formato.",[
     el("div",{class:"two"},[
       fieldWrap("Prefijo",cfgInput(C.prefijo,"ST.CA","c_pref",function(v){ C.prefijo=v; },{up:true,rerender:true})),
       fieldWrap("Dígitos del número",cfgInput(C.digCod,"3","c_dcod",function(v){ C.digCod=v; },{int:true,max:1,rerender:true}))]),
+    fieldWrap("Formato general",cfgInput(C.formato,"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}","c_fmt",function(v){ C.formato=v; },{up:true,rerender:true}),"{PRE} prefijo · {FRENTE} código del frente · {EST} código de la estructura · {ENSAYO} código del ensayo · {MAT} código del material · {N} número"),
+    fieldWrap("Código para evaluación de material",cfgInput(C.codEM,"EM","c_em",function(v){ C.codEM=v; },{abrev:true,max:6,rerender:true}),"Reemplaza al código del material cuando se marca “Evaluación de material”."),
     el("div",{class:"fdesc",style:"margin-top:-8px"},[ej?"Ejemplo: "+ej:""])]));
 
   /* frentes */
@@ -1689,7 +1866,7 @@ function renderConfig(app){
 }
 function ejemploCod(C){
   var f=C.frentes[0], x=f&&f.mats[0], k=x&&x.ens.filter(function(id){ return C.tipos[id]&&!C.tipos[id].muestra; })[0];
-  return k?fmtCod(k,7,f.id,x.m,C):"";
+  return k?fmtCod(k,7,f.id,x.m,C,""):"";
 }
 /* lista de elección (marcado = aplica) */
 function selCtl(todos,on,lbl){
@@ -1718,6 +1895,25 @@ function tarjetaFrenteCfg(C,f,i){
   body.appendChild(el("div",{class:"two"},[
     fieldWrap("Nombre corto",cfgInput(f.corto,"Ej: TAJO CHALARINA","fr_c_"+f.id,function(v){ f.corto=v; },{up:true})),
     fieldWrap("Código para correlativo",cfgInput(f.codigo,"Ej: RISTCH","fr_k_"+f.id,function(v){ f.codigo=v; },{abrev:true,max:10,rerender:true}))]));
+  /* formato propio del frente: los marcadores se pueden poner en cualquier orden */
+  var fmtIn=cfgInput(f.formato,C.formato,"fr_f_"+f.id,function(v){ f.formato=v; },{up:true,rerender:true});
+  var toks=el("div",{class:"toks"},["{PRE}","{FRENTE}","{EST}","{ENSAYO}","{MAT}","{N}"].map(function(tk){
+    return el("button",{type:"button",class:"mini",onclick:function(){ f.formato=(str(f.formato)||"")+(str(f.formato)&&!/\.$/.test(f.formato)?".":"")+tk; markDirty(); render(); }},[tk]); }));
+  toks.appendChild(el("button",{type:"button",class:"mini dng",onclick:function(){ f.formato=""; markDirty(); render(); }},["Usar el general"]));
+  var x0=f.mats[0], k0=x0&&x0.ens[0], e0=(f.estructuras||[]).filter(function(x){ return x.codigo; })[0]||(f.estructuras||[])[0];
+  body.appendChild(fieldWrap("Formato del correlativo (opcional)",el("div",null,[fmtIn,toks]),
+    (str(f.formato)?"":"Vacío = usa el general. ")+(k0?"Ejemplo: "+fmtCod(k0,7,f.id,x0.m,C,e0?e0.nombre:""):"")));
+  /* estructuras del frente */
+  body.appendChild(el("div",{class:"glbl"},["Estructuras (opcional)"]));
+  (f.estructuras||(f.estructuras=[])).forEach(function(x,j){
+    body.appendChild(el("div",{class:"estr"},[
+      cfgInput(x.nombre,"Ej: ETAPA 1B","fr_en_"+f.id+"_"+j,function(v){ x.nombre=v; },{up:true}),
+      cfgInput(x.codigo,"Cód. (ej. ZJ)","fr_ec_"+f.id+"_"+j,function(v){ x.codigo=v; },{abrev:true,max:8,rerender:true}),
+      iconBtn("✕","del",function(){ f.estructuras.splice(j,1); markDirty(); render(); })]));
+  });
+  body.appendChild(el("button",{class:"add",type:"button",style:"margin:0 0 14px",onclick:function(){ f.estructuras.push({nombre:"",codigo:""}); markDirty(); render(); }},["+ Agregar estructura"]));
+  if(!(f.estructuras||[]).length) body.appendChild(el("div",{class:"fdesc",style:"margin:-8px 0 14px"},["Sin estructuras: en el RD sale el nombre corto del frente."]));
+  else body.appendChild(el("div",{class:"fdesc",style:"margin:-8px 0 14px"},["El código de la estructura solo entra al correlativo si el formato tiene {EST}."]));
   body.appendChild(el("div",{class:"glbl"},["Materiales del frente"]));
   f.mats.forEach(function(x,j){ body.appendChild(materialFrenteCfg(C,f,x,j)); });
   var libres=C.materiales.map(function(m){ return m.nombre; }).filter(function(m){ return !matDe(f,m); });
@@ -1752,17 +1948,22 @@ function materialFrenteCfg(C,f,x,j){
     var fila=el("div",{class:"erow"+(on?" on":"")});
     fila.appendChild(el("button",{type:"button",class:"eck",onclick:function(){ var i=x.ens.indexOf(t.id); if(i<0) x.ens.push(t.id); else x.ens.splice(i,1); markDirty(); render(); }},[
       el("span",{class:"bx"},[on?"✓":""]),el("b",null,[t.muestra?"M":(codigoLimpio(t.abrev)||"?")]),el("span",null,[cap(t.corto)])]));
-    if(on && !t.muestra){
-      var sk=t.id+"|"+f.id+"|"+x.m, k2=serieKey(t.id,f.id,x.m);
-      if(ed.sig0[k2]===undefined){ ed.sig0[k2]=String(sigCod(t.id,f.id,x.m)); C.series[k2]={sig:ed.sig0[k2],reinicio:(cfg.series[k2]||{}).reinicio||0}; }
-      var ult=ultCod(t.id,f.id,x.m), sv=C.series[k2].sig, malo=sv!==ed.sig0[k2]&&ent(sv)<=ult;
-      fila.appendChild(el("div",{class:"esig"+(malo?" warn":"")},[el("small",null,["sig."]),
-        cfgInput(sv,"1","sg_"+sk,function(v){ C.series[k2].sig=v; },{int:true,max:6}),
-        el("small",{title:"Último registrado"},[ult?"últ. "+padN(ult,ent(C.digCod)||3):"nuevo"])]));
+    if(on){
+      var ests=(f.estructuras||[]).length?f.estructuras.map(function(e){ return e.nombre; }):[""];
+      var col=el("div",{class:"esigs"});
+      ests.forEach(function(es){
+        var sk=t.id+"|"+f.id+"|"+x.m+"|"+es, k2=serieKey(t.id,f.id,x.m,es);
+        if(ed.sig0[k2]===undefined){ ed.sig0[k2]=String(sigCod(t.id,f.id,x.m,es)); C.series[k2]={sig:ed.sig0[k2],reinicio:(cfg.series[k2]||{}).reinicio||0}; }
+        var ult=ultCod(t.id,f.id,x.m,es), sv=C.series[k2].sig, malo=sv!==ed.sig0[k2]&&ent(sv)<=ult;
+        col.appendChild(el("div",{class:"esig"+(malo?" warn":"")},[el("small",null,[es?titulo(es):"sig."]),
+          cfgInput(sv,"1","sg_"+sk,function(v){ C.series[k2].sig=v; },{int:true,max:6}),
+          el("small",{title:"Último registrado"},[ult?"últ. "+padN(ult,ent(C.digCod)||3):"nuevo"])]));
+      });
+      fila.appendChild(col);
     }
     body.appendChild(fila);
   });
-  body.appendChild(el("div",{class:"fdesc",style:"margin:4px 0 14px"},["“sig.” es el siguiente número de esa combinación. Si lo cambias, la numeración sigue desde ahí."]));
+  body.appendChild(el("div",{class:"fdesc",style:"margin:4px 0 14px"},[((f.estructuras||[]).length?"Cada estructura lleva su propio contador. ":"")+"El número es el siguiente de esa combinación; si lo cambias, la numeración sigue desde ahí."]));
   body.appendChild(fieldWrap("Procedencias que aplican",selCtl(C.procedencias,x.proc)));
   body.appendChild(el("div",{class:"btns",style:"margin-top:0"},[el("button",{class:"mini dng",type:"button",onclick:function(){
     if(confirm("¿Quitar “"+cap(x.m)+"” de este frente?")){ f.mats.splice(j,1); ed.matAb=null; markDirty(); render(); } }},["Quitar del frente"])]));
@@ -1797,7 +1998,7 @@ function catalogoMateriales(C){
 function renombrarMaterial(C,viejo,nuevo){
   if(!nuevo || nuevo===viejo) return;
   C.frentes.forEach(function(f){ f.mats.forEach(function(x){ if(x.m===viejo) x.m=nuevo; }); });
-  Object.keys(C.series).forEach(function(k){ var p=k.split("|"); if(p[2]===viejo){ C.series[p[0]+"|"+p[1]+"|"+nuevo]=C.series[k]; delete C.series[k]; } });
+  Object.keys(C.series).forEach(function(k){ var p=k.split("|"); if(p[2]===viejo){ p[2]=nuevo; C.series[p.join("|")]=C.series[k]; delete C.series[k]; } });
   markDirty();
 }
 function catalogoEnsayos(C){
@@ -1821,7 +2022,7 @@ function catalogoEnsayos(C){
         t[campo]=!t[campo]; if(campo==="muestra"&&t.muestra){ t.nEns=false; } markDirty(); render(); }},[el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,[txt])])]); }
       if(C.tipos.PROCTOR && t.id!=="PROCTOR" && t.asoc.indexOf("PROCTOR")<0) body.appendChild(tog("proc","Muestra el botón “Aplica Proctor estándar”"));
       if(!t.muestra) body.appendChild(tog("nEns","Pide N° de ensayo por capa"));
-      body.appendChild(tog("muestra","Sin correlativo propio (como “Muestra para laboratorio”)"));
+      body.appendChild(tog("muestra","Es muestreo (el correlativo no lleva código de ensayo; en el RD sale MUESTREO)"));
       body.appendChild(el("div",{class:"btns"},[
         iconBtn("↑","",function(){ mover(C.ensayos,i,-1); },i===0),iconBtn("↓","",function(){ mover(C.ensayos,i,1); },i===C.ensayos.length-1),
         el("button",{class:"mini dng",type:"button",onclick:function(){
@@ -1864,8 +2065,8 @@ function marcarReinicios(nueva){
     var s=nueva.series[k], s0=ed.sig0[k], p=k.split("|");
     if(s0!==undefined && ent(s.sig)!==ent(s0)){
       out[k]={sig:String(ent(s.sig)||1),reinicio:ahora};
-      var ult=ultCod(p[1],p[0],p[2]);
-      if(ent(s.sig)<=ult) avisos.push(fmtCod(p[1],ult,p[0],p[2],nueva)+" ya existe y lo pones en "+ent(s.sig)+".");
+      var ult=ultCod(p[1],p[0],p[2],p[3]||"");
+      if(ent(s.sig)<=ult) avisos.push(fmtCod(p[1],ult,p[0],p[2],nueva,p[3]||"")+" ya existe y lo pones en "+ent(s.sig)+".");
     } else if(cfg.series[k]) out[k]=cfg.series[k];
   });
   nueva.series=out;
