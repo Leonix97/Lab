@@ -2,7 +2,7 @@
    Red primero (para recibir actualizaciones) y caché como respaldo sin señal.
    Cada vez que publiques cambios en GitHub, sube el número de CACHE para que los celulares se actualicen.
    Si cambias el nombre del index.html, actualiza también ARCHIVOS y el manifest. */
-var CACHE = "laboratorio-v18";
+var CACHE = "laboratorio-v20";
 var ARCHIVOS = ["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./icon-maskable-512.png",
                 "./apple-touch-icon.png","./logo-izq.jpg","./logo-der.png","./exceljs.min.js"];
 

@@ -266,6 +266,7 @@
   .rdbtn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin-bottom:8px}
   .esigs{display:flex;flex-direction:column;gap:4px;flex:none}
   .esig small:first-child{min-width:30px;text-align:right}
+  .lib-acc{display:flex;gap:6px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -407,6 +408,15 @@ function sanitizeCfg(c){
   var sumarEval = !c.conEval && !o.ensayos.some(function(t){ return t.evalMat; });
   if(sumarEval){ var ev=findBy(defaultEnsayos(),"id","EVALMAT"); o.ensayos.push(ev); ids.push(ev.id); }
   o.conEval=true;
+  /* un ensayo con el mismo código que la evaluación de material (EM) pero sin serlo usaría el código del material:
+     se elimina y sus usos pasan a la evaluación de material */
+  var codEv=codigoLimpio(o.codEM||"EM"), evId=(o.ensayos.filter(function(t){ return t.evalMat; })[0]||{}).id, mapaEv={};
+  if(evId) o.ensayos.forEach(function(t){ if(!t.evalMat && codigoLimpio(t.abrev)===codEv) mapaEv[t.id]=evId; });
+  if(Object.keys(mapaEv).length){
+    o.ensayos=o.ensayos.filter(function(t){ return !mapaEv[t.id]; });
+    ids=o.ensayos.map(function(t){ return t.id; });
+    o.ensayos.forEach(function(t){ t.asoc=uniq(t.asoc.map(function(k){ return mapaEv[k]||k; })).filter(function(k){ return k!==t.id && ids.indexOf(k)>=0; }); });
+  }
   o.materiales=[]; (Array.isArray(c.materiales)?c.materiales:[]).forEach(function(m){
     var nm=up(m&&m.nombre); if(nm && !findBy(o.materiales,"nombre",nm)) o.materiales.push({nombre:nm,codigo:codigoLimpio(m.codigo)}); });
   o.procedencias=Array.isArray(c.procedencias)?uniq(arrStr(c.procedencias).map(up)):d.procedencias;
@@ -418,7 +428,7 @@ function sanitizeCfg(c){
       formato:/\{N\}/i.test(str(f.formato))?str(f.formato).toUpperCase():"",
       estructuras:ests.filter(function(x){ return x&&str(x.nombre); }).map(function(x){ return {nombre:up(x.nombre),codigo:codigoLimpio(x.codigo)}; }),
       mats:(Array.isArray(f.mats)?f.mats:[]).filter(function(x){ var ok=x&&nms.indexOf(x.m)>=0&&!vistos[x.m]; if(ok) vistos[x.m]=1; return ok; })
-        .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens).concat(sumarEval?["EVALMAT"]:[])).filter(function(k){ return ids.indexOf(k)>=0; }),
+        .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens).map(function(k){ return mapaEv[k]||k; }).concat(sumarEval?["EVALMAT"]:[])).filter(function(k){ return ids.indexOf(k)>=0; }),
                                   proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; })}; })};
   }).filter(function(f){ return !!f.nombre; });
   if(!o.frentes.length) o.frentes=d.frentes;
@@ -472,6 +482,7 @@ function validateCfg(c){
     if(t.muestra) return;
     var a=codigoLimpio(t.abrev);
     if(!a) e.push("Ensayo “"+nm+"”: falta el código.");
+    else if(!t.evalMat && a===codigoLimpio(c.codEM||"EM")) e.push("Ensayo “"+nm+"”: el código "+a+" es el de evaluación de material; usa otro.");
     else if(va[a]) e.push("El código de ensayo “"+a+"” está repetido ("+va[a]+" y "+nm+").");
     else va[a]=nm;
   });
@@ -715,7 +726,7 @@ function renderLogin(app){
     login.cargando=true; login.msg=""; render();
     var prev=conexion; conexion={url:SERVIDOR,key:pw};
     api("login",{},20000).then(function(j){
-      sesion={clave:pw,nombre:j.nombre,editor:!!j.editor}; lsSet(STORE_SESION,JSON.stringify(sesion)); aplicarSesion();
+      sesion={clave:pw,nombre:j.nombre,editor:!!j.editor,borrar:!!j.borrar}; lsSet(STORE_SESION,JSON.stringify(sesion)); aplicarSesion();
       login.cargando=false; login.ver=false; state.flash="Hola, "+j.nombre+".";
       render(); syncConfig(true).then(function(){ procesarCola(); syncCodigos(true); });
     },function(e){
@@ -1390,7 +1401,9 @@ function tarjetaLib(it,sub,pendiente){
     lineaDe(t,"REALIZADO POR")?el("span",null,["👤 "+lineaDe(t,"REALIZADO POR")]):null,
     ref?el("span",null,["↳ de "+ref]):null,
     pen?el("span",null,["⏳ dejó: "+pen]):null,
-    el("button",{class:"mini",type:"button",onclick:function(){ duplicar(it); }},["⧉ Copiar datos"]),
+    el("div",{class:"lib-acc"},[
+      el("button",{class:"mini",type:"button",onclick:function(){ duplicar(it); }},["⧉ Copiar datos"]),
+      sesion&&sesion.borrar&&!pendiente&&it.id?el("button",{class:"mini dng",type:"button",onclick:function(){ borrarEnsayo(it); }},["🗑 Eliminar"]):null]),
     el("details",null,[el("summary",null,["Ver texto"]),el("pre",null,[t])])
   ])];
   var id=idDrive(it.foto);
@@ -1497,6 +1510,20 @@ function cajaRD(){
     box.appendChild(b);
   });
   return box;
+}
+
+/* eliminar un ensayo (solo usuarios con permiso en el servidor); queda copia en la hoja "Eliminados" */
+function borrarEnsayo(it){
+  var f=formDe(it)||{}, nom=lineaDe(it.texto,"CORRELATIVO")||cap(lineaDe(it.texto,"ACTIVIDAD"))||it.id;
+  if(!confirm("¿Eliminar este registro?\n\n"+nom+"\n"+fechaTxt(f.fecha||it.fecha)+" · "+(it.hora||"")+"\n\nSe borra de la hoja (queda una copia en «Eliminados»). Sus pendientes también desaparecen.")) return;
+  api("borrar",{id:it.id}).then(function(){
+    function fuera(a){ return a.filter(function(x){ return x.id!==it.id; }); }
+    dia.items=fuera(dia.items); busq.items=fuera(busq.items);
+    function sinReg(a){ return a.filter(function(u){ return !((it.uid&&u.u===it.uid) || (u.id&&u.id===it.id) || (f.t&&u.t===f.t&&u.k===f.tipo)); }); }
+    usos=sinReg(usos); usosSrv=sinReg(usosSrv);
+    lsSet(STORE_USOS,JSON.stringify(usos)); lsSet(STORE_USOS_SRV,JSON.stringify(usosSrv));
+    state.flash="Eliminado: "+nom+"."; render(); syncCodigos(true);
+  },function(e){ alert("No se pudo eliminar: "+e.message); });
 }
 
 function renderDia(app){
@@ -2144,6 +2171,11 @@ if(prefs.frente && getFrente(prefs.frente)) state.frente=prefs.frente;
 resetForm();
 (function(){ var m=/[?&]v=(pend|hoy|nuevo)/.exec(location.search||""); if(m){ if(m[1]==="pend") state.view="pend"; else if(m[1]==="hoy") window.__abrirHoy=true; } })();
 render();
+if(sesion && conectado()) api("login",{},20000).then(function(j){
+  var cambio = j.nombre!==sesion.nombre || !!j.editor!==!!sesion.editor || !!j.borrar!==!!sesion.borrar;
+  sesion.nombre=j.nombre; sesion.editor=!!j.editor; sesion.borrar=!!j.borrar;
+  lsSet(STORE_SESION,JSON.stringify(sesion)); aplicarSesion(); if(cambio) render();
+}).catch(function(){});
 if(window.__abrirHoy && conectado()) abrirDia();
 syncConfig(true).then(function(){ procesarCola(); syncCodigos(true); });
 window.addEventListener("online",function(){ syncConfig(true); procesarCola(); syncCodigos(true); });
