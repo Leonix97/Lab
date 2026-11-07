@@ -326,7 +326,7 @@ var REP_CAMPOS = [
 function defaultReporte(){ var r={}; REP_CAMPOS.forEach(function(c){ r[c[0]]=c[2]; }); return r; }
 
 function E(id,abrev,largo,corto,norma,o){ o=o||{};
-  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra}; }
+  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat}; }
 function defaultEnsayos(){
   return [
     E("REEMPLAZO","RA","DENSIDAD DE CAMPO - REEMPLAZO DE AGUA","REEMPLAZO DE AGUA","ASTM D5030",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,nEns:true}),
@@ -336,7 +336,8 @@ function defaultEnsayos(){
     E("HUMEDAD",  "CH","CONTENIDO DE HUMEDAD",                 "CONTENIDO DE HUMEDAD","ASTM D2216"),
     E("LIMITES",  "L", "LÍMITES DE ATTERBERG",                 "LÍMITES DE ATTERBERG","ASTM D4318"),
     E("PROCTOR",  "PE","PROCTOR ESTÁNDAR",                     "PROCTOR ESTÁNDAR", "ASTM D698",{asoc:["GRAVEDAD","HUMEDAD"]}),
-    E("GRAVEDAD", "GE","GRAVEDAD ESPECÍFICA DE SÓLIDOS",       "GRAVEDAD ESPECÍFICA","ASTM D854")
+    E("GRAVEDAD", "GE","GRAVEDAD ESPECÍFICA DE SÓLIDOS",       "GRAVEDAD ESPECÍFICA","ASTM D854"),
+    E("EVALMAT",  "EM","EVALUACIÓN DE MATERIAL",               "EVALUACIÓN DE MATERIAL","",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,muestra:true,evalMat:true})
   ];
 }
 var MAT_COD = {"RELLENO ESTRUCTURAL":"RE","SUELO DE BAJA PERMEABILIDAD":"SBP","SOBRERREVESTIMIENTO":"SR",
@@ -354,7 +355,7 @@ function defaultConfig(){
   function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
   return {
-    esquema:4, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
+    esquema:4, conEval:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -382,7 +383,8 @@ function sanitizeEnsayo(t,b){
   return {id:str(t.id)||b.id||("E"+newId()), abrev:codigoLimpio(t.abrev!=null?t.abrev:b.abrev),
           largo:up(t.largo)||b.largo||"", corto:up(t.corto)||b.corto||"", norma:t.norma!=null?up(t.norma):(b.norma||""),
           asoc:arrStr(t.asoc!=null?t.asoc:b.asoc), proc:t.proc!=null?!!t.proc:!!b.proc,
-          nEns:t.nEns!=null?!!t.nEns:!!b.nEns, muestra:t.muestra!=null?!!t.muestra:!!b.muestra};
+          nEns:t.nEns!=null?!!t.nEns:!!b.nEns, muestra:t.muestra!=null?!!t.muestra:!!b.muestra,
+          evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat};
 }
 function sanitizeCfg(c){
   var d = defaultConfig();
@@ -400,7 +402,11 @@ function sanitizeCfg(c){
   if(!o.ensayos.length) o.ensayos=d.ensayos;
   var ids=o.ensayos.map(function(t){ return t.id; });
   o.ensayos.forEach(function(t){ t.asoc=uniq(t.asoc).filter(function(x){ return ids.indexOf(x)>=0 && x!==t.id && !findBy(o.ensayos,"id",x).muestra; });
-    if(t.muestra){ t.abrev=""; t.nEns=false; } });
+    if(t.muestra){ if(!t.evalMat) t.abrev=""; t.nEns=false; } });
+  /* configuraciones guardadas antes de existir “Evaluación de material”: se agrega una vez a todos los materiales */
+  var sumarEval = !c.conEval && !o.ensayos.some(function(t){ return t.evalMat; });
+  if(sumarEval){ var ev=findBy(defaultEnsayos(),"id","EVALMAT"); o.ensayos.push(ev); ids.push(ev.id); }
+  o.conEval=true;
   o.materiales=[]; (Array.isArray(c.materiales)?c.materiales:[]).forEach(function(m){
     var nm=up(m&&m.nombre); if(nm && !findBy(o.materiales,"nombre",nm)) o.materiales.push({nombre:nm,codigo:codigoLimpio(m.codigo)}); });
   o.procedencias=Array.isArray(c.procedencias)?uniq(arrStr(c.procedencias).map(up)):d.procedencias;
@@ -412,7 +418,7 @@ function sanitizeCfg(c){
       formato:/\{N\}/i.test(str(f.formato))?str(f.formato).toUpperCase():"",
       estructuras:ests.filter(function(x){ return x&&str(x.nombre); }).map(function(x){ return {nombre:up(x.nombre),codigo:codigoLimpio(x.codigo)}; }),
       mats:(Array.isArray(f.mats)?f.mats:[]).filter(function(x){ var ok=x&&nms.indexOf(x.m)>=0&&!vistos[x.m]; if(ok) vistos[x.m]=1; return ok; })
-        .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens)).filter(function(k){ return ids.indexOf(k)>=0; }),
+        .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens).concat(sumarEval?["EVALMAT"]:[])).filter(function(k){ return ids.indexOf(k)>=0; }),
                                   proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; })}; })};
   }).filter(function(f){ return !!f.nombre; });
   if(!o.frentes.length) o.frentes=d.frentes;
@@ -519,7 +525,9 @@ var EM_KEY="__EM__";
 /* la estructura (si el frente tiene) también separa el contador */
 function serieKey(k,f,m,es){ return f+"|"+k+"|"+m+(es?"|"+es:""); }
 function serie(k,f,m,C,es){ return (C||cfg).series[serieKey(k,f,m,es)]||{sig:"1",reinicio:0}; }
-function matKey(){ var d=state.d; return d?(d.evalMat?EM_KEY:d.material):""; }
+/* evaluación de material: lo define el ensayo elegido (o el generador del pendiente); el correlativo usa EM y no el material */
+function esEval(){ var t=cfg.tipos[state.tipo]; return !!((t&&t.evalMat) || (state.pend&&state.pend.r&&state.pend.r.em)); }
+function matKey(){ var d=state.d; return d?(esEval()?EM_KEY:d.material):""; }
 function ctx(f,m,es){ return [f!==undefined?f:state.frente, m!==undefined?m:matKey(), es!==undefined?es:(state.d?state.d.estructura||"":"")]; }
 function mkDe(u){ return u.em?EM_KEY:u.m; }
 function ultCod(k,f,m,es){ var c=ctx(f,m,es), r=serie(k,c[0],c[1],null,c[2]).reinicio||0, x=0;
@@ -944,7 +952,7 @@ function computeTexto(){
           d.estructura?"ESTRUCTURA: "+d.estructura:null,
           R.capa?"CAPA: "+R.capa:null,
           "MATERIAL: "+d.material,
-          d.evalMat?"PROPÓSITO: EVALUACIÓN DE MATERIAL":null,
+          esEval()&&!(t&&t.evalMat)?"PROPÓSITO: EVALUACIÓN DE MATERIAL":null,
           "ENSAYO: "+t.largo+(t.norma?" ("+t.norma+")":""),
           str(d.procedencia)?"PROCEDENCIA: "+str(d.procedencia).replace(/\s+/g," "):null,
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
@@ -1058,7 +1066,7 @@ function subirEnsayo(){
   if(prN && procedenciasDe(getFrente(state.frente)).indexOf(prN)<0){ prefs.procsExtra=uniq([prN].concat(arrStr(prefs.procsExtra))).slice(0,12); }
   savePrefs();
   var t=Date.now(), nE=R.nEns>=1?R.nEns:0, uid=newId();
-  var form={v:4,frente:state.frente,estructura:d.estructura||"",evalMat:!!d.evalMat,tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
+  var form={v:4,frente:state.frente,estructura:d.estructura||"",evalMat:esEval(),tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
             fecha:fechaActual(),turno:state.turno,cod:mu?"":fmtCod(state.tipo,R.cod),codN:mu?0:R.cod,t:t,asoc:R.asoc,
             padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:""};
   var it={uid:uid,texto:texto,campos:camposSubida(texto),nombreFoto:nombreFoto(form),
@@ -1107,7 +1115,7 @@ function tarjetaEnsayo(k){
   var t=cfg.tipos[k], on=state.tipo===k;
   return el("button",{type:"button",class:"tc"+(on?" on":""),"aria-pressed":on?"true":"false",
     onclick:function(){ if(state.tipo===k) return; state.tipo=k; resetForm(); render(); }},
-    [el("span",{class:"ab"},[esMuestra(k)?"M":t.abrev]),el("span",{class:"nm"},[t.corto])]);
+    [el("span",{class:"ab"},[t.abrev||(esMuestra(k)?"M":"?")]),el("span",{class:"nm"},[t.corto])]);
 }
 function proctorToggle(){
   var d=state.d;
@@ -1248,8 +1256,6 @@ function renderMain(app){
         d.material=v; d.nEdit=false; d.nEns=""; d.asocOff=[];
         if(state.tipo && ensayosDisp(fr,v).indexOf(state.tipo)<0) state.tipo="";
         trasCambio(); render(); },"Elige el material…")));
-      if(d.material) card.appendChild(el("button",{type:"button",class:"ptog"+(d.evalMat?" on":""),onclick:function(){ d.evalMat=!d.evalMat; d.codEdit=false; d.codN=""; trasCambio(); render(); }},[
-        el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,["Evaluación de material"]),el("small",null,["El correlativo usa "+(cfg.codEM||"EM")+" en lugar del código del material"])])]));
     }
     app.appendChild(card);
     if(!fr) return;
@@ -1672,7 +1678,7 @@ function hojaRD(wb,frenteId,regs,x){
    Ensayo Granulometría -RISTCH-Capa 23-RMA (ST.CA.RISTCH.G.RMA.130) */
 function tituloFoto(f,texto){
   var t=cfg.tipos[f.tipo], fr=getFrente(f.frente);
-  var nom = t ? (t.muestra?"Muestreo":"Ensayo "+titulo(t.corto)) : titulo(lineaDe(texto,"ENSAYO"));
+  var nom = t ? (t.evalMat?"Evaluación de material":t.muestra?"Muestreo":"Ensayo "+titulo(t.corto)) : titulo(lineaDe(texto,"ENSAYO"));
   var mat = f.evalMat ? (cfg.codEM||"EM") : (codMaterial(f.material)||titulo(f.material));
   var resto=[fr?codigoLimpio(fr.codigo):"", f.capa?"Capa "+f.capa:"", mat].filter(Boolean);
   return nom+(resto.length?" -"+resto.join("-"):"")+(f.cod?" ("+f.cod+")":"");
@@ -1818,7 +1824,7 @@ function renderConfig(app){
       fieldWrap("Prefijo",cfgInput(C.prefijo,"ST.CA","c_pref",function(v){ C.prefijo=v; },{up:true,rerender:true})),
       fieldWrap("Dígitos del número",cfgInput(C.digCod,"3","c_dcod",function(v){ C.digCod=v; },{int:true,max:1,rerender:true}))]),
     fieldWrap("Formato general",cfgInput(C.formato,"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}","c_fmt",function(v){ C.formato=v; },{up:true,rerender:true}),"{PRE} prefijo · {FRENTE} código del frente · {EST} código de la estructura · {ENSAYO} código del ensayo · {MAT} código del material · {N} número"),
-    fieldWrap("Código para evaluación de material",cfgInput(C.codEM,"EM","c_em",function(v){ C.codEM=v; },{abrev:true,max:6,rerender:true}),"Reemplaza al código del material cuando se marca “Evaluación de material”."),
+    fieldWrap("Código para evaluación de material",cfgInput(C.codEM,"EM","c_em",function(v){ C.codEM=v; },{abrev:true,max:6,rerender:true}),"En “Evaluación de material” y en sus pendientes reemplaza al código del material."),
     el("div",{class:"fdesc",style:"margin-top:-8px"},[ej?"Ejemplo: "+ej:""])]));
 
   /* frentes */
@@ -2011,7 +2017,7 @@ function catalogoEnsayos(C){
       el("button",{class:"mini",type:"button",onclick:function(){ ed.ensAb=ab?null:t.id; render(); }},[ab?"Cerrar":"Editar"])]));
     if(ab){
       var body=el("div",{class:"cr-body"});
-      if(!t.muestra) body.appendChild(el("div",{class:"two"},[
+      if(!t.muestra||t.evalMat) body.appendChild(el("div",{class:"two"},[
         fieldWrap("Código",cfgInput(t.abrev,"RA","ce_k_"+t.id,function(v){ t.abrev=v; },{abrev:true,max:6,rerender:true})),
         fieldWrap("Norma",cfgInput(t.norma,"ASTM …","ce_no_"+t.id,function(v){ t.norma=v; },{up:true}))]));
       body.appendChild(fieldWrap("Nombre del botón",cfgInput(t.corto,"","ce_c_"+t.id,function(v){ t.corto=v; },{up:true})));
@@ -2023,6 +2029,7 @@ function catalogoEnsayos(C){
       if(C.tipos.PROCTOR && t.id!=="PROCTOR" && t.asoc.indexOf("PROCTOR")<0) body.appendChild(tog("proc","Muestra el botón “Aplica Proctor estándar”"));
       if(!t.muestra) body.appendChild(tog("nEns","Pide N° de ensayo por capa"));
       body.appendChild(tog("muestra","Es muestreo (el correlativo no lleva código de ensayo; en el RD sale MUESTREO)"));
+      body.appendChild(tog("evalMat","Es evaluación de material (el correlativo usa "+(C.codEM||"EM")+" en lugar del código del material)"));
       body.appendChild(el("div",{class:"btns"},[
         iconBtn("↑","",function(){ mover(C.ensayos,i,-1); },i===0),iconBtn("↓","",function(){ mover(C.ensayos,i,1); },i===C.ensayos.length-1),
         el("button",{class:"mini dng",type:"button",onclick:function(){
