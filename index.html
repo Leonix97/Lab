@@ -267,6 +267,29 @@
   .esigs{display:flex;flex-direction:column;gap:4px;flex:none}
   .esig small:first-child{min-width:30px;text-align:right}
   .lib-acc{display:flex;gap:6px;flex-wrap:wrap}
+  /* tablas de entrada */
+  .tab{margin-bottom:12px}
+  .grid{display:grid;gap:6px;align-items:center;margin-bottom:6px}
+  .grid input{padding:9px 8px;font-size:14px}
+  .gh{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+  .cx{font-size:12.5px;font-weight:700;color:var(--ac2);text-align:right;font-variant-numeric:tabular-nums;line-height:1.25;white-space:pre-line}
+  .tz{font-size:13.5px;font-weight:700;color:#374151}
+  .tz small{display:block;font-weight:500;color:#9ca3af;font-size:11px}
+  .xb{border:1.5px solid #fecaca;background:#fff;color:#b91c1c;border-radius:7px;height:36px;font-weight:700;cursor:pointer;font-family:inherit;padding:0}
+  .xb:disabled{opacity:.25;cursor:default}
+
+  /* resultados */
+  .out-t{font-size:11px;font-weight:700;color:#6b7280;letter-spacing:1px;margin-bottom:10px;text-transform:uppercase}
+  .rt{width:100%;border-collapse:collapse;font-size:14px}
+  .rt td{padding:7px 2px;border-top:1px solid #eef0f3;vertical-align:top}
+  .rt tr:first-child td{border-top:none}
+  .rt td:last-child{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:#111827}
+  .rt td.ok{color:#15803d}.rt td.bad{color:#b91c1c}
+  .chart{margin-top:14px;border:1px solid #eef0f3;border-radius:10px;padding:6px}
+  .chart svg{width:100%;height:auto;display:block}
+
+  .hbtn.on{background:rgba(255,255,255,.3)}
+  .mini.on{background:var(--ac2);color:#fff}
 </style>
 </head>
 <body>
@@ -752,7 +775,7 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
+function nuevoForm(){ return {genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
@@ -845,6 +868,7 @@ function cabecera(app){
       sesion?el("div",{class:"who"},[sesion.editor?"Editor":"Registrador"]):null]),
     el("div",{class:"hgrp"},[
       pedirInstalar&&!instalada()?el("button",{class:"hbtn",type:"button",onclick:instalar,"aria-label":"Instalar app"},["📲 Instalar"]):null,
+      el("button",{class:"hbtn"+(state.view==="calc"?" on":""),type:"button",onclick:function(){ state.view="calc"; render(); window.scrollTo(0,0); },"aria-label":"Calcular"},["🧮 Calcular"]),
       el("button",{class:"hbtn",type:"button",onclick:abrirConfig,"aria-label":"Ajustes"},["⚙"])])]));
   var np=nPendientes();
   function tab(v,ico,txt,badge,fn){
@@ -895,7 +919,30 @@ function fechaCtl(){
    TEXTO
    ════════════════════════════════════════════════════════════════ */
 /* sugerido: en un pendiente se toma el número de su generador (RA-131 → G-131); si no, el siguiente de la serie */
+/* el hijo hereda el número de su generador (RA.131 → G.131); de una evaluación de material hereda además el EM (G.EM.012) */
 function deGenerador(k){ var p=state.pend; return !!(p && p.k===k && p.n>0); }
+function esGenerador(k){ var t=cfg.tipos[k]; return !!(t && (t.nEns || t.evalMat || t.muestra)); }   // CA, RA, EM, muestra
+/* evaluaciones de material registradas en el frente (la más reciente primero) */
+function evaluacionesDe(frente,estructura){
+  return todosUsos().filter(function(r){ var t=cfg.tipos[r.k]; return t && t.evalMat && r.f===frente && (!estructura || (r.es||"")===estructura); })
+    .sort(function(a,b){ return (b.t||0)-(a.t||0); });
+}
+/* generadores posibles de un ensayo: los que lo dejan como pendiente (RA, CA, EM, muestra, Proctor…) */
+function generadoresDe(k){ return TIPO_KEYS.filter(function(g){ var t=cfg.tipos[g]; return g!==k && t && (t.asoc.indexOf(k)>=0 || (k==="PROCTOR" && t.proc)); }); }
+/* pendientes de ese ensayo cuyo generador es del tipo elegido, en el frente (y estructura) actual */
+function pendientesPara(k,genTipo){
+  var d=state.d;
+  return pendientes().filter(function(p){ return p.r.k===genTipo && p.falta.indexOf(k)>=0 && p.r.f===state.frente && (!d.estructura || (p.r.es||"")===d.estructura); })
+    .sort(function(a,b){ return (b.r.t||0)-(a.r.t||0); });
+}
+/* registrar desde Nuevo un pendiente: hereda número, capa, material y procedencia de su generador */
+function ligarGenerador(p){
+  var r=p.r, k=state.tipo;
+  state.tipo=""; resetForm(true); state.tipo=k;
+  state.d.material=r.m; state.d.procedencia=r.pr||""; state.d.capa=r.c||""; state.d.estructura=r.es||"";
+  state.pend={u:r.u,cod:r.cod,n:r.n,pt:r.k,d:r.d,k:k,r:r,desdeNuevo:true};
+  render(); window.scrollTo(0,0);
+}
 function sugCod(k){ return deGenerador(k) ? state.pend.n : sigCod(k); }
 function existeCod(k,num){ var f=state.frente, m=matKey(), es=state.d.estructura||"";
   return todosUsos().some(function(u){ return u.k===k && u.f===f && mkDe(u)===m && (u.es||"")===es && u.n===num && u.t>=(serie(k,f,m,null,es).reinicio||0); }); }
@@ -1179,7 +1226,26 @@ function ensayosCard(fr){
   var c=sec("Ensayo");
   c.appendChild(el("div",{class:"tgrid"},disp.map(tarjetaEnsayo)));
   if(state.tipo && puedeProctor()) c.appendChild(proctorToggle());
-
+  /* ensayo que no es generador: se elige de qué generador proviene (RA, CA, EM…) o se ingresa el correlativo sin generador */
+  var gens=state.tipo&&!esGenerador(state.tipo)?generadoresDe(state.tipo):[];
+  if(gens.length){
+    c.appendChild(el("div",{class:"glbl",style:"margin-top:14px"},["¿Proviene de un ensayo generador?"]));
+    c.appendChild(optsCtl(d.genTipo,gens,function(v){ d.genTipo=v; d.sinGen=false; trasCambio(); render(); },
+      {labelFn:function(g){ return (cfg.tipos[g].abrev||"M")+" · "+cap(cfg.tipos[g].corto); },allowUnset:true}));
+    if(d.genTipo){
+      var ps=pendientesPara(state.tipo,d.genTipo), nomG=cap(cfg.tipos[d.genTipo].corto).toLowerCase();
+      if(ps.length) c.appendChild(el("div",{style:"margin-top:10px"},[selectCtl("",ps.map(function(p){ return p.r.u; }),function(u){
+          var r=findBy(ps.map(function(p){ return p.r; }),"u",u);
+          return codCorto(r.k,r.n)+(r.c?" · capa "+r.c:"")+" · "+cap(r.m)+(r.d?" · "+fechaCorta(r.d):""); },
+        function(u){ var p=ps.filter(function(x){ return x.r.u===u; })[0]; if(p) ligarGenerador(p); },"Elige el "+nomG+" pendiente…")]));
+      else c.appendChild(el("div",{class:"fdesc",style:"margin-top:8px"},["No hay "+cap(cfg.tipos[state.tipo].corto).toLowerCase()+" pendiente de "+nomG+" en este frente"+(d.estructura?" y estructura":"")+"."]));
+    }
+    c.appendChild(el("button",{type:"button",class:"mini"+(d.sinGen?" on":""),style:"margin-top:10px",onclick:function(){ d.sinGen=!d.sinGen; if(d.sinGen) d.genTipo=""; trasCambio(); render(); }},
+      [(d.sinGen?"✓ ":"✎ ")+"Ingresar correlativo sin generador"]));
+    if(d.sinGen) c.appendChild(noteBox(["Este ensayo no tiene ensayo generador: no hereda número, capa ni procedencia. Ingresa el correlativo y los datos abajo."],""));
+  }
+  if(state.tipo && CALC.tiene(state.tipo)) c.appendChild(el("button",{type:"button",class:"mini",style:"margin-top:12px;display:block",
+    onclick:function(){ CALC.elegir(state.tipo); state.view="calc"; render(); window.scrollTo(0,0); }},["🧮 Calcular este ensayo"]));
   return c;
 }
 /* capa: en un pendiente viene escrita del generador y no se modifica; en un ensayo nuevo se escribe aquí */
@@ -1238,7 +1304,7 @@ function codigoCard(){
 }
 function resumenMuestra(r){
   var fr=getFrente(r.f);
-  return [fr?(fr.corto||fr.nombre):"",r.es?cap(r.es):"",r.c?"Capa "+r.c:"",cap(r.m),r.em?"Evaluación de material":"",r.pr||""].filter(Boolean).join(" · ");
+  return [fr?(fr.corto||fr.nombre):"",r.es?titulo(r.es):"",r.c?"Capa "+r.c:"",cap(r.m),r.em?"Evaluación de material":"",r.pr||""].filter(Boolean).join(" · ");
 }
 function renderMain(app){
   cabecera(app);
@@ -1251,9 +1317,9 @@ function renderMain(app){
     /* registrando un pendiente: la muestra viene del ensayo que lo originó */
     var p=state.pend;
     card.appendChild(el("div",{class:"pband"},[
-      el("div",{class:"pb-t"},[el("span",null,["⏳ Pendiente de "]),el("b",null,[p.cod?codCorto(p.pt,p.n):"muestra del "+fechaCorta(p.d)])]),
+      el("div",{class:"pb-t"},[el("span",null,[p.desdeNuevo?"🔗 Proviene de ":"⏳ Pendiente de "]),el("b",null,[p.cod?codCorto(p.pt,p.n):"muestra del "+fechaCorta(p.d)])]),
       el("div",{class:"pb-d"},[resumenMuestra(p.r)]),
-      el("button",{class:"mini",type:"button",onclick:function(){ state.pend=null; state.view="pend"; resetForm(); render(); }},["✕ Cancelar"])]));
+      el("button",{class:"mini",type:"button",onclick:function(){ var de=p.desdeNuevo; state.pend=null; if(!de) state.view="pend"; resetForm(); render(); }},["✕ Cancelar"])]));
     app.appendChild(card);
   } else {
     card.appendChild(fieldWrap("Frente / proyecto",selectCtl(state.frente,cfg.frentes.map(function(f){return f.id;}),function(id){ var f=getFrente(id); return f?(f.corto||f.nombre):id; },function(v){
@@ -2073,16 +2139,30 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
+var VERSION_APP="v23";
+/* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
+function verificarPermisos(){
+  api("login",{},20000).then(function(j){
+    sesion.nombre=j.nombre; sesion.editor=!!j.editor; sesion.borrar=!!j.borrar;
+    lsSet(STORE_SESION,JSON.stringify(sesion)); aplicarSesion();
+    var m=["Servidor: "+j.nombre+" · "+(j.editor?"editor":"registrador")+" · "+(j.borrar?"puede eliminar":"no puede eliminar")+"."];
+    if(j.borrar===undefined) m.push("El servidor no tiene la versión nueva de Code.gs: pégala y crea una nueva versión de la implementación (Administrar implementaciones › ✏️ › Nueva versión).");
+    else if(!j.borrar) m.push("En USUARIOS, tu línea necesita un tercer valor true: [\""+j.nombre+"\", true, true]. Luego crea una nueva versión de la implementación.");
+    setMsg(m,j.borrar?"ok":"err"); render(); window.scrollTo(0,0);
+  },function(e){ setMsg(["No se pudo consultar: "+e.message],"err"); render(); window.scrollTo(0,0); });
+}
 function cardConexion(){
   var kids=[];
   kids.push(el("div",{class:"item"},[el("div",{class:"nm"},[el("b",null,[sesion.nombre]),
-      el("span",null,[sesion.editor?"Editor: tus cambios en Ajustes se guardan para todo el equipo.":"Registrador: puedes ver los Ajustes; los cambia un editor."])]),
+      el("span",null,[sesion.editor?"Editor: tus cambios en Ajustes se guardan para todo el equipo.":"Registrador: puedes ver los Ajustes; los cambia un editor."]),
+      el("span",null,["Eliminar ensayos: "+(sesion.borrar?"sí":"no")+" · App "+VERSION_APP])]),
     iconBtn("Cerrar sesión","",function(){
       if(cola.length && !confirm("Hay "+cola.length+" registros esperando señal en este celular. Se subirán cuando vuelvas a ingresar. ¿Cerrar sesión?")) return;
       cerrarSesion("");
     })]));
   kids.push(el("div",{class:"fdesc",style:"margin-top:10px"},[cfgMeta.version?"Configuración del equipo v"+cfgMeta.version+(cfgMeta.fecha?" · "+cfgMeta.fecha:"")+(cfgMeta.por?" · "+cfgMeta.por:"")
      :"El servidor aún no tiene configuración"+(sesion.editor?": pulsa Guardar para publicarla.":"; un editor debe publicarla.")]));
+  kids.push(el("div",{class:"btns"},[el("button",{class:"b-sec",type:"button",onclick:verificarPermisos},["↻ Verificar permisos con el servidor"])]));
   return secCard("Sesión",null,kids);
 }
 function importar(texto){
@@ -2144,6 +2224,677 @@ function salirConfig(){
   ed=null; state.view="main"; render(); window.scrollTo(0,0);
 }
 
+
+/* ════════════════════════════════════════════════════════════════
+   CALCULAR — cálculos de los ensayos para verificar datos y gráficas
+   (no se suben; más adelante se pueden ligar al registro)
+   ════════════════════════════════════════════════════════════════ */
+var CALC=(function(){
+var DENS={CONO:1,REEMPLAZO:1};
+var RE_TAM=/^(.+?)\s*=\s*(\d+(?:[.,]\d+)?)\s*(?:mm)?$/i;
+var cfg={proctores:[],conos:[],compMin:"95",
+  moldes:[{nombre:'MOLDE 4" (943.3 cm³)',vol:"943.3",peso:""},{nombre:'MOLDE 6" (2124 cm³)',vol:"2124",peso:""}],
+  tamices:['3" = 75','2" = 50','1 1/2" = 37.5','1" = 25','3/4" = 19','1/2" = 12.5','3/8" = 9.5',
+           'N°4 = 4.75','N°10 = 2','N°20 = 0.85','N°40 = 0.425','N°60 = 0.25','N°100 = 0.15','N°200 = 0.075']};
+function n(v){ if(v==null||v==="") return NaN; return parseFloat(String(v).replace(",",".")); }
+function ok(x){ return typeof x==="number" && isFinite(x); }
+function fx(x,d){ return ok(x)?x.toFixed(d):"—"; }
+function avg(a){ a=a.filter(ok); if(!a.length) return NaN; var s=0; a.forEach(function(x){s+=x;}); return s/a.length; }
+function parseTamices(lines){
+  var out=[];
+  (lines||[]).forEach(function(l){ var m=RE_TAM.exec(str(l)); if(m) out.push({n:m[1].trim(),mm:parseFloat(m[2].replace(",","."))}); });
+  out.sort(function(a,b){ return b.mm-a.mm; });
+  return out;
+}
+var S={tipo:"",d:null,datos:{}};
+var liveCells=[];
+function refresh(){
+  liveCells.forEach(function(c){ c.node.textContent=c.fn(); });
+  var rb=document.getElementById("resbox"); if(rb && S.d) rb.parentNode.replaceChild(buildRes(),rb);
+}
+function nuevoForm(tipo){
+  var d={};
+  if(DENS[tipo]){ d.wModo="TARAS"; d.wDir=""; d.wt=[filaW()]; d.proctor=""; d.mds=""; d.och=""; d.req=String(cfg.compMin||"95"); d.ws=""; }
+  if(tipo==="CONO"){ d.equipo=""; d.arenaCono=""; d.densArena=""; d.fi=""; d.ff=""; }
+  if(tipo==="REEMPLAZO"){ d.v1=""; d.v2=""; }
+  if(tipo==="HUMEDAD"){ d.m=[filaW(),filaW()]; }
+  if(tipo==="GRANULO"){ d.mt=""; d.ml=""; d.np=false; d.llG=""; d.ipG="";
+    d.tam=parseTamices(cfg.tamices).map(function(t){ return {n:t.n,mm:t.mm,r:""}; }); }
+  if(tipo==="LIMITES"){ d.ll=[filaLL(),filaLL(),filaLL()]; d.lp=[filaW(),filaW()]; d.np=false; }
+  if(tipo==="PROCTOR"){ d.metodo="A"; d.molde=""; d.vm=""; d.pm=""; d.gs="2.65"; d.pwModo="TARAS"; d.pts=[filaP(),filaP(),filaP(),filaP(),filaP()]; }
+  return d;
+}
+function proctorBlock(c){
+  c.appendChild(numField("mds","Máxima densidad seca (MDS)","Ej: 2.010","g/cm³"));
+  c.appendChild(numField("och","Óptimo contenido de humedad (opcional)","Ej: 9.5","%"));
+  c.appendChild(numField("req","Compactación mínima","95","%"));
+}
+function nr(){ return {rows:[],falta:[],err:[],warn:[],lines:[],sum:{},chart:""}; }
+function lleno(r,keys){ return keys.some(function(k){ return str(r[k])!==""; }); }
+
+/* contenido de humedad de una fila (tara, tara+húmedo, tara+seco) */
+function wRow(r){
+  var t=n(r.t), h=n(r.h), s=n(r.s);
+  if(!ok(t)||!ok(h)||!ok(s)||s<=t||h<s) return NaN;
+  return (h-s)/(s-t)*100;
+}
+function fw(x){ return ok(x)?fx(x,1):"—"; }
+
+/* humedad usada en densidades de campo */
+function humedadDe(d){
+  if(d.wModo==="DIRECTA") return n(d.wDir);
+  return avg((d.wt||[]).map(wRow));
+}
+
+/* ── cierre común de las densidades de campo ── */
+function densidades(R,d,dh){
+  if(ok(dh)) R.rows.push(["Densidad húmeda",fx(dh,3)+" g/cm³"]);
+  var w=humedadDe(d);
+  if(!ok(w)) R.falta.push(d.wModo==="DIRECTA"?"contenido de humedad":"pesos de humedad (taras)");
+  else R.rows.push(["Contenido de humedad",fx(w,1)+" %"]);
+  (d.wModo==="DIRECTA"?[]:d.wt).forEach(function(r,i){
+    if(lleno(r,["t","h","s"]) && !ok(wRow(r)))
+      R.warn.push("Humedad, fila "+(i+1)+": revisa los pesos (tara < tara+seco ≤ tara+húmedo).");
+  });
+  var ds = dh/(1+w/100);
+  if(ok(ds)) R.rows.push(["Densidad seca",fx(ds,3)+" g/cm³"]);
+  var mds=n(d.mds), och=n(d.och), rq=n(d.req);
+  if(!(mds>0)) R.falta.push("máxima densidad seca (Proctor)");
+  if(!(rq>0)) R.falta.push("compactación mínima");
+  var C = ds/mds*100, res="";
+  if(ok(C)){
+    var cumple = C>=rq;
+    res = cumple?"CUMPLE":"NO CUMPLE";
+    R.rows.push(["Compactación",fx(C,1)+" %",cumple?"ok":"bad"]);
+    R.rows.push(["Resultado",res+(ok(rq)?" (mín. "+rq+" %)":""),cumple?"ok":"bad"]);
+  }
+  if(ok(w)&&ok(och)) R.rows.push(["Humedad − óptima",(w-och>=0?"+":"")+fx(w-och,1)+" %"]);
+  if(ok(C) && C>110) R.warn.push("Compactación mayor a 110 %: revisa los pesos o el Proctor de referencia.");
+  var ref = d.proctor ? findBy(cfg.proctores,"id",d.proctor) : null;
+  R.lines = [
+    "DENS. HÚMEDA: "+fx(dh,3)+" g/cm³",
+    "HUMEDAD: "+fx(w,1)+" %",
+    "DENS. SECA: "+fx(ds,3)+" g/cm³",
+    ref?"PROCTOR REF.: "+ref.nombre:null,
+    "MDS: "+fx(mds,3)+" g/cm³",
+    ok(och)?"OCH: "+fx(och,1)+" %":null,
+    "COMPACTACIÓN: "+fx(C,1)+" % (MÍN. "+rq+" %)",
+    "RESULTADO: "+res
+  ];
+  R.sum = {dh:dh,w:w,ds:ds,mds:mds,och:och,C:C,req:rq,res:res};
+}
+
+function conoVol(d){
+  var usada=n(d.fi)-n(d.ff), hoyo=usada-n(d.arenaCono), V=hoyo/n(d.densArena);
+  return {usada:usada,hoyo:hoyo,V:V};
+}
+function calcCono(d){
+  var R=nr();
+  if(!(n(d.arenaCono)>=0)) R.falta.push("arena en el cono");
+  if(!(n(d.densArena)>0)) R.falta.push("densidad de la arena");
+  if(!ok(n(d.fi))) R.falta.push("frasco + arena antes");
+  if(!ok(n(d.ff))) R.falta.push("frasco + arena después");
+  if(!(n(d.ws)>0)) R.falta.push("peso del suelo húmedo");
+  var v=conoVol(d), dh=NaN;
+  if(ok(v.usada)) R.rows.push(["Arena usada",fx(v.usada,1)+" g"]);
+  if(ok(v.hoyo)){
+    if(v.hoyo<=0) R.err.push("La arena en el hoyo sale "+fx(v.hoyo,1)+" g: revisa los pesos del frasco y del cono.");
+    else if(ok(v.V)){ R.rows.push(["Arena en el hoyo",fx(v.hoyo,1)+" g"]); R.rows.push(["Volumen del hoyo",fx(v.V,1)+" cm³"]); dh=n(d.ws)/v.V; }
+  }
+  densidades(R,d,dh);
+  R.sum.V=v.V;
+  return R;
+}
+function calcReemplazo(d){
+  var R=nr(), v1=n(d.v1), v2=n(d.v2), ws=n(d.ws), dh=NaN;
+  if(!ok(v1)) R.falta.push("agua para llenar el anillo");
+  if(!ok(v2)) R.falta.push("agua para llenar hoyo + anillo");
+  if(!(ws>0)) R.falta.push("masa del material extraído");
+  var V=v2-v1;
+  if(ok(V)){
+    if(V<=0) R.err.push("El volumen del hoyo sale "+fx(V,2)+" L: el agua del hoyo + anillo debe ser mayor que la del anillo.");
+    else { R.rows.push(["Volumen del hoyo",fx(V,2)+" L"]); dh=ws/V; }
+  }
+  densidades(R,d,dh);
+  R.sum.V=V;
+  return R;
+}
+
+function calcHumedad(d){
+  var R=nr(), ws=[];
+  d.m.forEach(function(r,i){
+    var w=wRow(r);
+    if(ok(w)){ ws.push(w); R.rows.push(["Muestra "+(i+1)+(str(r.tara)?" (tara "+str(r.tara)+")":""),fx(w,1)+" %"]); }
+    else if(lleno(r,["t","h","s"])) R.warn.push("Fila "+(i+1)+": revisa los pesos (tara < tara+seco ≤ tara+húmedo).");
+  });
+  if(!ws.length){ R.falta.push("pesos de al menos una muestra"); return R; }
+  var w=avg(ws);
+  R.rows.push(["Humedad promedio",fx(w,1)+" %","ok"]);
+  if(ws.length>1){
+    var dif=Math.max.apply(null,ws)-Math.min.apply(null,ws);
+    if(dif>2) R.warn.push("Las muestras difieren "+fx(dif,1)+" puntos de humedad: revisa si son representativas.");
+  }
+  R.lines=["HUMEDAD: "+fx(w,1)+" %",ws.length>1?"MUESTRAS: "+ws.length:null];
+  R.sum={w:w,n:ws.length};
+  return R;
+}
+
+/* ── granulometría ── */
+function granPts(d){
+  var mt=n(d.mt), acum=0, hay=false, rows=[];
+  d.tam.forEach(function(r){
+    var x=n(r.r); if(ok(x)) hay=true; else x=0;
+    acum+=x;
+    rows.push({n:r.n,mm:r.mm,ret:x,acum:acum,pasa:(mt>0)?100-acum/mt*100:NaN});
+  });
+  return {mt:mt,rows:rows,sum:acum,fondo:mt-acum,hay:hay};
+}
+function interpMm(rows,p){
+  for(var i=0;i<rows.length-1;i++){
+    var a=rows[i], b=rows[i+1];
+    if(a.pasa>=p && b.pasa<=p){
+      if(a.pasa===b.pasa) return b.mm;
+      var t=(p-b.pasa)/(a.pasa-b.pasa);
+      return Math.pow(10,Math.log10(b.mm)+t*(Math.log10(a.mm)-Math.log10(b.mm)));
+    }
+  }
+  return NaN;
+}
+function pasaEn(rows,mm){
+  if(!rows.length) return NaN;
+  for(var i=0;i<rows.length;i++) if(Math.abs(rows[i].mm-mm)<1e-6) return rows[i].pasa;
+  if(mm>rows[0].mm) return rows[0].pasa>99.95?100:NaN;
+  for(var j=0;j<rows.length-1;j++){
+    var a=rows[j], b=rows[j+1];
+    if(a.mm>mm && b.mm<mm){
+      var t=(Math.log10(mm)-Math.log10(b.mm))/(Math.log10(a.mm)-Math.log10(b.mm));
+      return b.pasa+t*(a.pasa-b.pasa);
+    }
+  }
+  return NaN;
+}
+/* tipo de finos según la carta de plasticidad: M, C o CM */
+function finosTipo(ll,ip,np){
+  if(np) return "M";
+  if(!ok(ll)||!ok(ip)) return null;
+  var a=0.73*(ll-20);
+  if(ip<4 || ip<a) return "M";
+  if(ip>7) return "C";
+  return "CM";
+}
+function sucsFino(ll,ip,np){
+  if(np) return ok(ll)&&ll>=50?"MH":"ML";
+  if(!ok(ll)||!ok(ip)) return null;
+  var a=0.73*(ll-20);
+  if(ll<50){ if(ip>7 && ip>=a) return "CL"; if(ip>=4 && ip>=a) return "CL-ML"; return "ML"; }
+  return ip>=a?"CH":"MH";
+}
+function sucs(g){
+  if(!ok(g.finos)) return null;
+  if(g.finos>=50) return sucsFino(g.ll,g.ip,g.np) || "FINO (falta LL e IP)";
+  var G = (g.grava>g.arena) ? "G" : "S";
+  var hayCu = ok(g.cu)&&ok(g.cc);
+  var p = hayCu && g.cc>=1 && g.cc<=3 && g.cu>=(G==="G"?4:6) ? "W" : "P";
+  var f = finosTipo(g.ll,g.ip,g.np);
+  if(g.finos<5) return hayCu ? G+p : G+"W/"+G+"P (faltan D10–D60)";
+  if(g.finos>12){
+    if(!f) return G+"M/"+G+"C (falta LL e IP)";
+    return f==="CM" ? G+"C-"+G+"M" : G+f;
+  }
+  if(!hayCu) return G+"?-"+G+"? (faltan D10–D60)";
+  if(!f) return G+p+"-"+G+"M/"+G+"C (falta LL e IP)";
+  return G+p+"-"+G+(f==="CM"?"C":f);
+}
+function calcGranulo(d){
+  var R=nr(), g=granPts(d), ml=n(d.ml);
+  if(!(g.mt>0)) R.falta.push("masa seca total");
+  if(!g.hay) R.falta.push("masas retenidas");
+  if(R.falta.length) return R;
+  var tol=Math.max(1,g.mt*0.003);
+  if(g.fondo < -tol){ R.err.push("La suma de retenidos ("+fx(g.sum,1)+" g) supera la masa seca total ("+fx(g.mt,1)+" g)."); return R; }
+  if(ok(ml)){
+    if(ml>g.mt) R.err.push("La masa después del lavado no puede ser mayor que la masa total.");
+    else R.rows.push(["Pérdida por lavado",fx(g.mt-ml,1)+" g"]);
+    if(g.sum>ml+tol) R.warn.push("Los retenidos ("+fx(g.sum,1)+" g) suman más que la masa lavada ("+fx(ml,1)+" g).");
+  }
+  R.rows.push(["Fondo + finos (calc.)",fx(g.fondo,1)+" g"]);
+  var rows=g.rows;
+  var P4=pasaEn(rows,4.75), P200=pasaEn(rows,0.075);
+  var grava=100-P4, arena=P4-P200, finos=P200;
+  var D10=interpMm(rows,10), D30=interpMm(rows,30), D60=interpMm(rows,60);
+  var cu=D60/D10, cc=D30*D30/(D10*D60);
+  var llG=n(d.llG), ipG=n(d.ipG);
+  var cls=sucs({grava:grava,arena:arena,finos:finos,cu:cu,cc:cc,ll:llG,ip:ipG,np:!!d.np});
+  R.rows.push(["Grava (> N°4)",fx(grava,1)+" %"]);
+  R.rows.push(["Arena (N°4 – N°200)",fx(arena,1)+" %"]);
+  R.rows.push(["Finos (< N°200)",fx(finos,1)+" %"]);
+  R.rows.push(["D10 / D30 / D60",fx(D10,3)+" / "+fx(D30,3)+" / "+fx(D60,3)+" mm"]);
+  R.rows.push(["Cu / Cc",fx(cu,1)+" / "+fx(cc,2)]);
+  if(cls) R.rows.push(["SUCS (referencial)",cls,"ok"]);
+  if(!ok(P200)) R.warn.push("No hay tamiz N°200 (0.075 mm) en la serie: no se calculan los finos.");
+  var serie = rows.map(function(r){ return r.n+"="+(r.pasa>=99.95?"100":fx(r.pasa,1)); }).join(" | ");
+  R.lines=[
+    "MASA SECA TOTAL: "+fx(g.mt,1)+" g",
+    "GRAVA: "+fx(grava,1)+" %",
+    "ARENA: "+fx(arena,1)+" %",
+    "FINOS: "+fx(finos,1)+" %",
+    ok(cu)?"CU: "+fx(cu,1):null,
+    ok(cc)?"CC: "+fx(cc,2):null,
+    cls?"SUCS: "+cls:null,
+    "% QUE PASA: "+serie
+  ];
+  R.sum={grava:grava,arena:arena,finos:finos,d10:D10,d30:D30,d60:D60,cu:cu,cc:cc,sucs:cls||"",
+         pasa:rows.map(function(r){ return [r.n,r.mm,r.pasa]; })};
+  R.chart = chart({xlog:true,xrev:true,y0:0,y1:100,xLabel:"Abertura (mm)",yLabel:"% que pasa",
+    series:[{pts:rows.map(function(r){return [r.mm,r.pasa];}),type:"line",color:"#0d9488",dots:true}],
+    vlines:[{x:4.75,lbl:"N°4"},{x:0.075,lbl:"N°200"}]});
+  return R;
+}
+
+/* ── límites de Atterberg ── */
+function calcLimites(d){
+  var R=nr(), pts=[];
+  d.ll.forEach(function(r,i){
+    var N=n(r.n), w=wRow(r);
+    if(N>0 && ok(w)) pts.push([N,w]);
+    else if(lleno(r,["n","t","h","s"])) R.warn.push("LL, fila "+(i+1)+": faltan golpes o los pesos no cuadran.");
+  });
+  var LL=NaN, reg=null;
+  if(pts.length>=2){
+    var xs=pts.map(function(p){return Math.log10(p[0]);}), ys=pts.map(function(p){return p[1];});
+    var xm=avg(xs), ym=avg(ys), sxx=0, sxy=0;
+    xs.forEach(function(x,i){ sxx+=(x-xm)*(x-xm); sxy+=(x-xm)*(ys[i]-ym); });
+    if(sxx>0){
+      var b=sxy/sxx; reg={a:ym-b*xm,b:b};
+      LL=reg.a+reg.b*Math.log10(25);
+      if(b>=0) R.warn.push("La humedad debería bajar al aumentar los golpes: revisa los puntos del LL.");
+    } else R.err.push("Los puntos del LL tienen el mismo número de golpes: usa golpes distintos.");
+    pts.forEach(function(p){ if(p[0]<15||p[0]>35) R.warn.push("Punto con "+p[0]+" golpes: lo ideal es entre 15 y 35."); });
+  } else if(pts.length===1){
+    var N1=pts[0][0];
+    LL=pts[0][1]*Math.pow(N1/25,0.121);
+    R.warn.push("LL con un solo punto (método B, un punto)"+(N1<20||N1>30?": usa entre 20 y 30 golpes.":"."));
+  }
+  var lps=[];
+  d.lp.forEach(function(r,i){
+    var w=wRow(r);
+    if(ok(w)) lps.push(w); else if(lleno(r,["t","h","s"])) R.warn.push("LP, fila "+(i+1)+": revisa los pesos.");
+  });
+  var LP=avg(lps);
+  var np=!!d.np;
+  if(!np){
+    if(!ok(LL)) R.falta.push("puntos del límite líquido");
+    if(!ok(LP)) R.falta.push("límite plástico");
+    if(ok(LL)&&ok(LP)&&Math.round(LP)>=Math.round(LL)){ np=true; R.warn.push("LP ≥ LL: la muestra se reporta como no plástica (NP)."); }
+  }
+  var llR=Math.round(LL), lpR=Math.round(LP), ipR=llR-lpR;
+  var clas = np ? sucsFino(LL,NaN,true) : sucsFino(llR,ipR,false);
+  if(ok(LL)) R.rows.push(["Límite líquido",fx(LL,1)+" %"]);
+  if(!np && ok(LP)) R.rows.push(["Límite plástico",fx(LP,1)+" %"]);
+  if(np) R.rows.push(["Plasticidad","NP (no plástico)","ok"]);
+  else if(ok(ipR)) R.rows.push(["Índice de plasticidad",ipR+" %"]);
+  if(clas && (np || ok(ipR))) R.rows.push(["Carta de plasticidad",clas,"ok"]);
+  R.lines=[
+    "LÍMITE LÍQUIDO: "+(ok(LL)?String(llR):"NP"),
+    "LÍMITE PLÁSTICO: "+(np?"NP":String(lpR)),
+    "ÍNDICE DE PLASTICIDAD: "+(np?"NP":String(ipR)),
+    clas?"CLASIFICACIÓN: "+clas:null
+  ];
+  R.sum={ll:ok(LL)?llR:null,lp:np?"NP":lpR,ip:np?"NP":ipR,clas:clas||"",np:np};
+  if(pts.length){
+    var ser=[{pts:pts,type:"dots",color:"#0d9488"}];
+    if(reg){ var lp2=[]; for(var k=0;k<=20;k++){ var N=10*Math.pow(10,k/20); lp2.push([N,reg.a+reg.b*Math.log10(N)]); } ser.unshift({pts:lp2,type:"line",color:"#94a3b8"}); }
+    var yv=pts.map(function(p){return p[1];}); if(ok(LL)) yv.push(LL);
+    var y0=Math.min.apply(null,yv), y1=Math.max.apply(null,yv), py=Math.max(2,(y1-y0)*0.25);
+    R.chart=chart({xlog:true,x0:10,x1:100,y0:y0-py,y1:y1+py,xLabel:"N° de golpes",yLabel:"Humedad (%)",
+      series:ser,vlines:[{x:25,lbl:ok(LL)?"LL "+fx(LL,1):"25"}]});
+  }
+  return R;
+}
+
+/* ── Proctor ── */
+function ptoProctor(d,r){
+  var w = d.pwModo==="DIRECTA" ? n(r.w) : wRow(r);
+  var gh = (n(r.pms)-n(d.pm))/n(d.vm);
+  return {w:w,gh:gh,gd:gh/(1+w/100)};
+}
+function solve3(A,b){
+  function det(M){ return M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])-M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])+M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]); }
+  var D=det(A); if(Math.abs(D)<1e-12) return null;
+  var out=[];
+  for(var k=0;k<3;k++){ var M=A.map(function(row,i){ var r2=row.slice(); r2[k]=b[i]; return r2; }); out.push(det(M)/D); }
+  return out;
+}
+function fitQuad(P){
+  var xm=avg(P.map(function(p){return p[0];}));
+  var S=[0,0,0,0,0], T=[0,0,0];
+  P.forEach(function(p){ var x=p[0]-xm, y=p[1], xx=1; for(var k=0;k<5;k++){ S[k]+=xx; if(k<3) T[k]+=y*xx; xx*=x; } });
+  var s=solve3([[S[0],S[1],S[2]],[S[1],S[2],S[3]],[S[2],S[3],S[4]]],T);
+  if(!s) return null;
+  return {a:s[0],b:s[1],c:s[2],xm:xm,f:function(x){ var u=x-xm; return s[0]+s[1]*u+s[2]*u*u; },xv:xm-s[1]/(2*s[2])};
+}
+function calcProctor(d){
+  var R=nr(), V=n(d.vm), Pm=n(d.pm), gs=n(d.gs);
+  if(!(V>0)) R.falta.push("volumen del molde");
+  if(!ok(Pm)) R.falta.push("peso del molde");
+  var P=[];
+  d.pts.forEach(function(r,i){
+    var p=ptoProctor(d,r);
+    if(ok(p.gd)&&p.gd>0) P.push([p.w,p.gd]);
+    else if(lleno(r,d.pwModo==="DIRECTA"?["pms","w"]:["pms","t","h","s"]) && V>0 && ok(Pm)) R.warn.push("Punto "+(i+1)+": incompleto o con pesos incoherentes.");
+  });
+  if(P.length<3){ R.falta.push("al menos 3 puntos completos"); return R; }
+  P.sort(function(a,b){ return a[0]-b[0]; });
+  var wmin=P[0][0], wmax=P[P.length-1][0];
+  var f=fitQuad(P), mds=NaN, och=NaN;
+  if(f && f.c<0){
+    och=f.xv; mds=f.f(och);
+    if(och<wmin||och>wmax){
+      R.warn.push("El óptimo cae fuera de los puntos ensayados: agrega un punto del lado "+(och<wmin?"seco":"húmedo")+".");
+    }
+  } else {
+    var best=P.reduce(function(a,b){ return b[1]>a[1]?b:a; });
+    och=best[0]; mds=best[1]; f=null;
+    R.warn.push("Los puntos no forman una curva con máximo; se toma el punto más alto.");
+  }
+  if(P.length===3) R.warn.push("Con 3 puntos la curva es exacta pero poco confiable: lo recomendado son 4 o más.");
+  var zav = gs>0 ? function(w){ return gs/(1+w*gs/100); } : null;
+  if(zav) P.forEach(function(p,i){ if(p[1]>zav(p[0])*1.005) R.warn.push("Un punto (w = "+fx(p[0],1)+" %) queda sobre la curva de saturación: revisa Gs o los pesos."); });
+  R.rows.push(["Puntos válidos",String(P.length)]);
+  R.rows.push(["Máxima densidad seca",fx(mds,3)+" g/cm³","ok"]);
+  R.rows.push(["Óptimo contenido de humedad",fx(och,1)+" %","ok"]);
+  R.lines=[
+    "MÉTODO: "+d.metodo,
+    "MÁX. DENSIDAD SECA: "+fx(mds,3)+" g/cm³",
+    "ÓPTIMO CONT. HUMEDAD: "+fx(och,1)+" %",
+    "PUNTOS: "+P.length
+  ];
+  R.sum={metodo:d.metodo,mds:mds,och:och,n:P.length};
+  var x0=wmin-1.5, x1=wmax+1.5, ser=[], cur=[], zv=[];
+  if(f) for(var k=0;k<=40;k++){ var x=x0+(x1-x0)*k/40; cur.push([x,f.f(x)]); }
+  if(zav) for(var j=0;j<=40;j++){ var w=x0+(x1-x0)*j/40; zv.push([w,zav(w)]); }
+  if(zv.length) ser.push({pts:zv,type:"line",color:"#94a3b8",dash:true});
+  if(cur.length) ser.push({pts:cur,type:"line",color:"#0d9488"});
+  ser.push({pts:P,type:"dots",color:"#134e4a"});
+  var yv=P.map(function(p){return p[1];}).concat([mds]);
+  var ya=Math.min.apply(null,yv), yb=Math.max.apply(null,yv), py=Math.max(0.03,(yb-ya)*0.35);
+  R.chart=chart({x0:x0,x1:x1,y0:ya-py,y1:yb+py,xLabel:"Contenido de humedad (%)",yLabel:"Densidad seca (g/cm³)",
+    series:ser,vlines:[{x:och,lbl:"OCH "+fx(och,1)+"%"}]});
+  return R;
+}
+
+/* ── gráfico SVG simple ── */
+var chartN=0;
+function linTicks(a,b){
+  var r=b-a, st=Math.pow(10,Math.floor(Math.log10(r/5))), m=r/5/st;
+  st*= m>5?10:m>2?5:m>1?2:1;
+  var dec=Math.max(0,-Math.floor(Math.log10(st)+1e-9)), out=[];
+  for(var v=Math.ceil(a/st-1e-9)*st; v<=b+1e-9; v+=st) out.push({v:v,lbl:v.toFixed(dec),major:true});
+  return out;
+}
+function logTicks(a,b){
+  var out=[], e0=Math.round(Math.log10(a)), e1=Math.round(Math.log10(b));
+  for(var e=e0;e<=e1;e++) for(var m=1;m<=9;m++){
+    var v=parseFloat((m*Math.pow(10,e)).toPrecision(3));
+    if(v>=a*0.999 && v<=b*1.001) out.push({v:v,major:m===1,lbl:(m===1||m===2||m===5)?String(v):""});
+  }
+  return out;
+}
+function chart(o){
+  var W=480,H=260,L=50,Rm=14,T=14,B=42,pw=W-L-Rm,ph=H-T-B;
+  var xs=[],ys=[];
+  o.series.forEach(function(s){ s.pts.forEach(function(p){ if(ok(p[0])&&ok(p[1])){ xs.push(p[0]); ys.push(p[1]); } }); });
+  if(!xs.length) return "";
+  var x0=o.x0!=null?o.x0:Math.min.apply(null,xs), x1=o.x1!=null?o.x1:Math.max.apply(null,xs);
+  var y0=o.y0!=null?o.y0:Math.min.apply(null,ys), y1=o.y1!=null?o.y1:Math.max.apply(null,ys);
+  if(o.xlog){ x0=Math.pow(10,Math.floor(Math.log10(x0)+1e-9)); x1=Math.pow(10,Math.ceil(Math.log10(x1)-1e-9)); if(x1<=x0) x1=x0*10; }
+  else if(x1<=x0){ x0-=1; x1+=1; }
+  if(y1<=y0){ y0-=1; y1+=1; }
+  function X(x){ var t=o.xlog?(Math.log10(x)-Math.log10(x0))/(Math.log10(x1)-Math.log10(x0)):(x-x0)/(x1-x0); if(o.xrev) t=1-t; return (L+t*pw).toFixed(1); }
+  function Y(y){ return (T+(1-(y-y0)/(y1-y0))*ph).toFixed(1); }
+  var id="cl"+(++chartN);
+  var s='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="10">';
+  s+='<defs><clipPath id="'+id+'"><rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+'"/></clipPath></defs>';
+  (o.xlog?logTicks(x0,x1):linTicks(x0,x1)).forEach(function(t){
+    var x=X(t.v);
+    s+='<line x1="'+x+'" y1="'+T+'" x2="'+x+'" y2="'+(T+ph)+'" stroke="'+(t.major?"#cbd5e1":"#eef0f3")+'"/>';
+    if(t.lbl) s+='<text x="'+x+'" y="'+(T+ph+14)+'" text-anchor="middle" fill="#64748b">'+t.lbl+'</text>';
+  });
+  linTicks(y0,y1).forEach(function(t){
+    var y=Y(t.v);
+    s+='<line x1="'+L+'" y1="'+y+'" x2="'+(L+pw)+'" y2="'+y+'" stroke="#e5e7eb"/>';
+    s+='<text x="'+(L-5)+'" y="'+(+y+3)+'" text-anchor="end" fill="#64748b">'+t.lbl+'</text>';
+  });
+  s+='<rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+'" fill="none" stroke="#94a3b8"/>';
+  (o.vlines||[]).forEach(function(v){
+    if(!ok(v.x)||v.x<Math.min(x0,x1)||v.x>Math.max(x0,x1)) return;
+    var x=X(v.x);
+    s+='<line x1="'+x+'" y1="'+T+'" x2="'+x+'" y2="'+(T+ph)+'" stroke="#f59e0b" stroke-dasharray="4 3"/>';
+    s+='<text x="'+(+x+3)+'" y="'+(T+11)+'" fill="#b45309" font-weight="700">'+v.lbl+'</text>';
+  });
+  o.series.forEach(function(se){
+    var p=se.pts.filter(function(q){ return ok(q[0])&&ok(q[1]); });
+    if(se.type==="line" && p.length>1){
+      s+='<path clip-path="url(#'+id+')" d="'+p.map(function(q,i){ return (i?"L":"M")+X(q[0])+" "+Y(q[1]); }).join(" ")+'" fill="none" stroke="'+se.color+'" stroke-width="2"'+(se.dash?' stroke-dasharray="5 4"':'')+'/>';
+    }
+    if(se.type==="dots"||se.dots) p.forEach(function(q){ s+='<circle cx="'+X(q[0])+'" cy="'+Y(q[1])+'" r="3.6" fill="'+se.color+'"/>'; });
+  });
+  s+='<text x="'+(L+pw/2)+'" y="'+(H-6)+'" text-anchor="middle" fill="#374151" font-weight="700">'+o.xLabel+'</text>';
+  s+='<text transform="translate(12 '+(T+ph/2)+') rotate(-90)" text-anchor="middle" fill="#374151" font-weight="700">'+o.yLabel+'</text>';
+  return s+'</svg>';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FORMULARIO
+   ════════════════════════════════════════════════════════════════ */
+function filaW(){ return {tara:"",t:"",h:"",s:""}; }
+function filaLL(){ return {n:"",t:"",h:"",s:""}; }
+function filaP(){ return {pms:"",t:"",h:"",s:"",w:""}; }
+var TESTS = {
+  CONO:     {calc:calcCono,      form:formCono},
+  REEMPLAZO:{calc:calcReemplazo, form:formReemplazo},
+  HUMEDAD:  {calc:calcHumedad,   form:formHumedad},
+  GRANULO:  {calc:calcGranulo,   form:formGranulo},
+  LIMITES:  {calc:calcLimites,   form:formLimites},
+  PROCTOR:  {calc:calcProctor,   form:formProctor}
+};
+function getK(k){ var p=k.split("."), o=S.d; for(var i=0;i<p.length;i++){ if(o==null) return ""; o=o[p[i]]; } return o==null?"":o; }
+function setK(k,v){ var p=k.split("."), o=S.d; for(var i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=v; }
+
+function inp(key,ph,opt){
+  opt=opt||{};
+  var v=getK(key);
+  var i=el("input",{type:"text",value:String(v),placeholder:ph||"",inputmode:opt.num?"decimal":"text",
+    "data-fk":key,class:opt.up?"up":"",autocomplete:"off"});
+  i.addEventListener("input",function(e){
+    var raw=e.target.value, val=opt.num?numFilter(raw):(opt.up?raw.toUpperCase():raw);
+    if(val!==raw){ var p=e.target.selectionStart; e.target.value=val; try{ e.target.setSelectionRange(p,p); }catch(x){} }
+    setK(key,val);
+    if(opt.on) opt.on(val);
+    refresh();
+  });
+  return i;
+}
+function numField(key,label,ph,unit,desc,opt){
+  opt=opt||{}; opt.num=true;
+  var i=inp(key,ph,opt);
+  return fieldWrap(label,unit?el("div",{class:"row"},[i,el("span",{class:"u"},[unit])]):i,desc);
+}
+function txtField(key,label,ph,desc){ return fieldWrap(label,inp(key,ph,{up:true}),desc); }
+function live(fn,cls){ var s=el("div",{class:cls||"live"}); s.textContent=fn(); liveCells.push({node:s,fn:fn}); return s; }
+
+/* tabla editable de filas (d[key] es un arreglo de objetos) */
+function tabla(key,cols,o){
+  var arr=S.d[key];
+  var gt=cols.map(function(c){ return c.w||"minmax(0,1fr)"; }).join(" ")+(o.extra?" "+(o.ew||"56px"):"")+" 32px";
+  var w=el("div",{class:"tab"});
+  var h=el("div",{class:"grid gh",style:"grid-template-columns:"+gt});
+  cols.forEach(function(c){ h.appendChild(el("div",null,[c.t])); });
+  if(o.extra) h.appendChild(el("div",{style:"text-align:right"},[o.et||""]));
+  h.appendChild(el("div"));
+  w.appendChild(h);
+  arr.forEach(function(r,i){
+    var row=el("div",{class:"grid",style:"grid-template-columns:"+gt});
+    cols.forEach(function(c){ row.appendChild(inp(key+"."+i+"."+c.k,c.ph||"",{num:!c.txt,up:!!c.txt})); });
+    if(o.extra) row.appendChild(live(function(){ return o.extra(arr[i]); },"cx"));
+    row.appendChild(el("button",{class:"xb",type:"button",disabled:arr.length<=(o.min||1),"aria-label":"Quitar fila",
+      onclick:function(){ arr.splice(i,1); render(); }},["✕"]));
+    w.appendChild(row);
+  });
+  if(arr.length<(o.max||10))
+    w.appendChild(el("button",{class:"add",type:"button",onclick:function(){ arr.push(o.nuevo()); render(); }},[o.add||"+ Agregar fila"]));
+  return w;
+}
+
+/* ── bloques comunes ── */
+function humBlock(c){
+  var d=S.d;
+  c.appendChild(fieldWrap("Humedad",optsCtl(d.wModo,["TARAS","DIRECTA"],function(v){ d.wModo=v; render(); },
+    {labelFn:function(k){ return k==="TARAS"?"Con taras (horno)":"Ingresar %"; }})));
+  if(d.wModo==="DIRECTA"){ c.appendChild(numField("wDir","Contenido de humedad","Ej: 8.4","%")); return; }
+  c.appendChild(tabla("wt",[{k:"t",t:"Tara (g)",ph:"0"},{k:"h",t:"T + húmedo",ph:"0"},{k:"s",t:"T + seco",ph:"0"}],
+    {min:1,max:3,extra:function(r){ return fw(wRow(r)); },et:"w %",add:"+ Otra muestra",nuevo:filaW}));
+  c.appendChild(live(function(){ var w=humedadDe(d); return ok(w)?"Humedad promedio: "+fx(w,1)+" %":"Escribe los pesos para calcular la humedad."; }));
+}
+function formCono(app){
+  var d=S.d;
+  var c1=sec("Calibración","Arena retenida en el cono y la placa, y densidad de la arena según la calibración vigente.");
+  if(cfg.conos.length) c1.appendChild(fieldWrap("Equipo",optsCtl(d.equipo,cfg.conos.map(function(x){return x.nombre;}),function(v){
+    d.equipo=v; var q=findBy(cfg.conos,"nombre",v); if(q){ if(q.arenaCono) d.arenaCono=q.arenaCono; if(q.densArena) d.densArena=q.densArena; } render();
+  },{})));
+  c1.appendChild(numField("arenaCono","Arena en el cono y placa","Ej: 1680.5","g"));
+  c1.appendChild(numField("densArena","Densidad de la arena","Ej: 1.452","g/cm³"));
+  app.appendChild(c1);
+  var c2=sec("Ensayo en campo");
+  c2.appendChild(numField("fi","Frasco + arena, antes","Ej: 7250","g"));
+  c2.appendChild(numField("ff","Frasco + arena, después","Ej: 3120","g"));
+  c2.appendChild(live(function(){ var v=conoVol(d); return v.V>0?"Arena en el hoyo: "+fx(v.hoyo,1)+" g · Volumen: "+fx(v.V,1)+" cm³":"El volumen del hoyo sale de los pesos de arena."; }));
+  c2.appendChild(numField("ws","Suelo húmedo extraído del hoyo","Ej: 4980","g"));
+  app.appendChild(c2);
+  var c3=sec("Humedad del suelo"); humBlock(c3); app.appendChild(c3);
+  var c4=sec("Proctor y compactación"); proctorBlock(c4); app.appendChild(c4);
+}
+function formReemplazo(app){
+  var d=S.d;
+  var c1=sec("Volúmenes de agua","Con el anillo nivelado y el plástico colocado, mide el agua de cada llenado.");
+  c1.appendChild(numField("v1","Agua para llenar el anillo (sin excavar)","Ej: 41.2","L"));
+  c1.appendChild(numField("v2","Agua para llenar hoyo + anillo","Ej: 152.8","L"));
+  c1.appendChild(live(function(){ var V=n(d.v2)-n(d.v1); return V>0?"Volumen del hoyo: "+fx(V,2)+" L":"El volumen del hoyo es la diferencia de los dos llenados."; }));
+  c1.appendChild(numField("ws","Material húmedo extraído","Ej: 236.4","kg"));
+  app.appendChild(c1);
+  var c3=sec("Humedad del material"); humBlock(c3); app.appendChild(c3);
+  var c4=sec("Proctor y compactación"); proctorBlock(c4); app.appendChild(c4);
+}
+function formHumedad(app){
+  var d=S.d;
+  var c=sec("Muestras","Secado en horno a 110 ± 5 °C hasta masa constante. Pesos en gramos.");
+  c.appendChild(tabla("m",[{k:"tara",t:"Tara",ph:"N°",txt:true},{k:"t",t:"Tara (g)",ph:"0"},{k:"h",t:"T + húm.",ph:"0"},{k:"s",t:"T + seco",ph:"0"}],
+    {min:1,max:5,extra:function(r){ return fw(wRow(r)); },et:"w %",add:"+ Otra muestra",nuevo:filaW}));
+  c.appendChild(live(function(){ var w=avg(d.m.map(wRow)); return ok(w)?"Humedad promedio: "+fx(w,1)+" %":"Escribe los pesos de al menos una muestra."; }));
+  app.appendChild(c);
+}
+function formGranulo(app){
+  var d=S.d;
+  var c1=sec("Masas");
+  c1.appendChild(numField("mt","Masa seca total inicial","Ej: 5230","g"));
+  c1.appendChild(numField("ml","Masa seca después del lavado (opcional)","Ej: 4815","g","Si lavaste por la malla N°200. Si no, déjalo vacío."));
+  app.appendChild(c1);
+  var c2=sec("Tamizado","Masa retenida en cada tamiz, en gramos. Vacío = 0 g. Los tamices se cambian en ⚙ Ajustes.");
+  var gt="minmax(0,1.1fr) minmax(0,1fr) 64px";
+  c2.appendChild(el("div",{class:"grid gh",style:"grid-template-columns:"+gt},[el("div",null,["Tamiz"]),el("div",null,["Retenido (g)"]),el("div",{style:"text-align:right"},["% pasa"])]));
+  d.tam.forEach(function(r,i){
+    c2.appendChild(el("div",{class:"grid",style:"grid-template-columns:"+gt},[
+      el("div",{class:"tz"},[r.n,el("small",null,[r.mm+" mm"])]),
+      inp("tam."+i+".r","0",{num:true}),
+      live(function(){ var g=granPts(d), x=g.rows[i]; return x&&ok(x.pasa)?(x.pasa>=99.95?"100":fx(x.pasa,1)):"—"; },"cx")
+    ]));
+  });
+  c2.appendChild(live(function(){ var g=granPts(d); return g.mt>0?"Suma retenida: "+fx(g.sum,1)+" g · Fondo + finos: "+fx(g.fondo,1)+" g":"Escribe la masa seca total."; }));
+  app.appendChild(c2);
+  var c3=sec("Plasticidad de los finos (opcional)","Para la clasificación SUCS. Cópiala del ensayo de límites de la misma muestra.");
+  c3.appendChild(fieldWrap("¿No plástico (NP)?",optsCtl(d.np?"SÍ":"NO",["SÍ","NO"],function(v){ d.np=v==="SÍ"; render(); },{})));
+  if(!d.np){
+    c3.appendChild(numField("llG","Límite líquido (LL)","Ej: 28","%"));
+    c3.appendChild(numField("ipG","Índice de plasticidad (IP)","Ej: 9","%"));
+  }
+  app.appendChild(c3);
+}
+function formLimites(app){
+  var d=S.d;
+  var c0=sec("Plasticidad");
+  c0.appendChild(fieldWrap("¿Muestra no plástica (NP)?",optsCtl(d.np?"SÍ":"NO",["SÍ","NO"],function(v){ d.np=v==="SÍ"; render(); },{}),
+    "Marca SÍ si no se puede formar el rollito de 3 mm o el LL no se puede determinar."));
+  app.appendChild(c0);
+  var c1=sec("Límite líquido","Copa de Casagrande. Lo ideal: 3 puntos entre 15 y 35 golpes. Pesos en gramos.");
+  c1.appendChild(tabla("ll",[{k:"n",t:"Golpes",ph:"25"},{k:"t",t:"Tara",ph:"0"},{k:"h",t:"T + húm.",ph:"0"},{k:"s",t:"T + seco",ph:"0"}],
+    {min:1,max:5,extra:function(r){ return fw(wRow(r)); },et:"w %",add:"+ Otro punto",nuevo:filaLL}));
+  app.appendChild(c1);
+  if(!d.np){
+    var c2=sec("Límite plástico","Rollitos de 3 mm. Pesos en gramos.");
+    c2.appendChild(tabla("lp",[{k:"t",t:"Tara",ph:"0"},{k:"h",t:"T + húmedo",ph:"0"},{k:"s",t:"T + seco",ph:"0"}],
+      {min:1,max:4,extra:function(r){ return fw(wRow(r)); },et:"w %",add:"+ Otra prueba",nuevo:filaW}));
+    app.appendChild(c2);
+  }
+}
+function formProctor(app){
+  var d=S.d;
+  var c1=sec("Molde y método");
+  c1.appendChild(fieldWrap("Método",optsCtl(d.metodo,["A","B","C"],function(v){ d.metodo=v; render(); },
+    {labelFn:function(k){ return {A:"A · pasa N°4",B:"B · pasa 3/8\"",C:"C · pasa 3/4\""}[k]; }})));
+  if(cfg.moldes.length) c1.appendChild(fieldWrap("Molde",optsCtl(d.molde,cfg.moldes.map(function(m){return m.nombre;}),function(v){
+    d.molde=v; var m=findBy(cfg.moldes,"nombre",v); if(m){ if(m.vol) d.vm=m.vol; if(m.peso) d.pm=m.peso; } render();
+  },{})));
+  c1.appendChild(numField("vm","Volumen del molde","Ej: 943.3","cm³"));
+  c1.appendChild(numField("pm","Peso del molde (sin collar)","Ej: 4210","g"));
+  c1.appendChild(numField("gs","Gravedad específica Gs (opcional)","2.65","","Solo para dibujar la curva de saturación."));
+  app.appendChild(c1);
+  var c2=sec("Puntos de compactación","Mínimo 4 puntos, idealmente 2 a cada lado del óptimo. Pesos en gramos.");
+  c2.appendChild(fieldWrap("Humedad de cada punto",optsCtl(d.pwModo,["TARAS","DIRECTA"],function(v){ d.pwModo=v; render(); },
+    {labelFn:function(k){ return k==="TARAS"?"Con taras (horno)":"Ingresar %"; }})));
+  var cols = d.pwModo==="DIRECTA"
+    ? [{k:"pms",t:"Molde + suelo",ph:"0"},{k:"w",t:"w (%)",ph:"0"}]
+    : [{k:"pms",t:"M+suelo",ph:"0",w:"minmax(0,1.4fr)"},{k:"t",t:"Tara",ph:"0"},{k:"h",t:"T+húm.",ph:"0"},{k:"s",t:"T+seco",ph:"0"}];
+  c2.appendChild(tabla("pts",cols,{min:1,max:7,ew:"66px",et:"w · γd",add:"+ Otro punto",nuevo:filaP,
+    extra:function(r){ var p=ptoProctor(d,r); return ok(p.gd)&&p.gd>0?fx(p.w,1)+"%\n"+fx(p.gd,3):"—"; }}));
+  app.appendChild(c2);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RESULTADOS Y TEXTO
+   ════════════════════════════════════════════════════════════════ */
+function buildRes(){
+  var R=evaluar();
+  var c=el("div",{class:"card",id:"resbox"},[el("div",{class:"out-t"},["Resultados"])]);
+  R.err.forEach(function(e){ c.appendChild(noteBox([e],"err")); });
+  R.warn.forEach(function(e){ c.appendChild(noteBox([e],"")); });
+  if(R.rows.length){
+    var t=el("table",{class:"rt"});
+    R.rows.forEach(function(r){ t.appendChild(el("tr",null,[el("td",null,[r[0]]),el("td",{class:r[2]||""},[r[1]])])); });
+    c.appendChild(t);
+  } else c.appendChild(el("div",{class:"stat",style:"margin-top:0"},["Los resultados aparecen a medida que llenas los datos."]));
+  if(R.chart){ var ch=el("div",{class:"chart"}); ch.innerHTML=R.chart; c.appendChild(ch); }
+  return c;
+}
+function evaluar(){ return TESTS[S.tipo].calc(S.d); }
+/* pantalla */
+function elegir(k){ S.tipo=k; if(!S.datos[k]) S.datos[k]=nuevoForm(k); S.d=S.datos[k]; }
+function vista(app){
+  liveCells=[];
+  var c=sec("¿Qué ensayo vas a calcular?","Ingresa los datos del laboratorio para verificar resultados y gráficas. Por ahora no se suben.");
+  c.appendChild(optsCtl(S.tipo,Object.keys(TESTS).filter(function(k){ return !!cfg_global().tipos[k]; }),function(v){ elegir(v); render(); },
+    {labelFn:function(k){ return cap(cfg_global().tipos[k].corto); }}));
+  app.appendChild(c);
+  if(!S.tipo) return;
+  if(!S.d) elegir(S.tipo);
+  TESTS[S.tipo].form(app);
+  app.appendChild(buildRes());
+  app.appendChild(el("div",{class:"btns"},[el("button",{class:"b-dng",type:"button",onclick:function(){
+    if(confirm("¿Borrar los datos de este cálculo?")){ S.datos[S.tipo]=nuevoForm(S.tipo); S.d=S.datos[S.tipo]; render(); } }},["Limpiar datos"])]));
+}
+function cfg_global(){ return window.cfg||{tipos:{}}; }
+return {vista:vista,elegir:elegir,tiene:function(k){ return !!TESTS[k]; },estado:S};
+})();
+
 /* ════════════════════════════════════════════════════════════════
    RENDER GENERAL
    ════════════════════════════════════════════════════════════════ */
@@ -2157,6 +2908,7 @@ function render(){
   else if(state.view==="config") renderConfig(app);
   else if(state.view==="hoy") renderDia(app);
   else if(state.view==="pend") renderPend(app);
+  else if(state.view==="calc"){ cabecera(app); CALC.vista(app); }
   else renderMain(app);
   if(keepId){
     var back=document.querySelector('[data-fk="'+keepId+'"]');
