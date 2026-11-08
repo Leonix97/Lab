@@ -352,7 +352,7 @@ function defaultReporte(){ var r={}; REP_CAMPOS.forEach(function(c){ r[c[0]]=c[2
 
 function E(id,abrev,largo,corto,norma,o){ o=o||{};
   return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat,
-          horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0}; }
+          horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0, pideDH:id==="REEMPLAZO"}; }
 function defaultEnsayos(){
   return [
     E("REEMPLAZO","RA","DENSIDAD DE CAMPO - REEMPLAZO DE AGUA","REEMPLAZO DE AGUA","ASTM D5030",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,nEns:true}),
@@ -410,7 +410,7 @@ function sanitizeEnsayo(t,b){
           largo:up(t.largo)||b.largo||"", corto:up(t.corto)||b.corto||"", norma:t.norma!=null?up(t.norma):(b.norma||""),
           asoc:arrStr(t.asoc!=null?t.asoc:b.asoc), proc:t.proc!=null?!!t.proc:!!b.proc,
           nEns:t.nEns!=null?!!t.nEns:!!b.nEns, muestra:t.muestra!=null?!!t.muestra:!!b.muestra,
-          evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat, horno:t.horno!=null?!!t.horno:!!b.horno};
+          evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat, horno:t.horno!=null?!!t.horno:!!b.horno, pideDH:t.pideDH!=null?!!t.pideDH:!!b.pideDH};
 }
 function sanitizeCfg(c){
   var d = defaultConfig();
@@ -788,7 +788,7 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
+function nuevoForm(){ return {dh:"",horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
@@ -1026,6 +1026,7 @@ function computeTexto(){
           "MATERIAL: "+d.material,
           esEval()&&!(t&&t.evalMat)?"PROPÓSITO: EVALUACIÓN DE MATERIAL":null,
           "ENSAYO: "+t.largo+(t.norma?" ("+t.norma+")":""),
+          t.pideDH&&dhVal()?"DH: "+dhVal()+" g/cm³":null,
           str(d.procedencia)?"PROCEDENCIA: "+str(d.procedencia).replace(/\s+/g," "):null,
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
           !mu&&R.nEns>=1?"N° ENSAYO: "+R.nEns:null,
@@ -1141,7 +1142,7 @@ function subirEnsayo(){
   var form={v:4,frente:state.frente,estructura:d.estructura||"",evalMat:esEval(),tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
             fecha:fechaActual(),turno:state.turno,cod:mu?"":fmtCod(state.tipo,R.cod),codN:mu?0:R.cod,t:t,asoc:R.asoc,
             padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:"",
-            o:puedeHorno()&&d.horno?{__PROC__:"EN PROCESO"}:{}};
+            o:puedeHorno()&&d.horno?{__PROC__:"EN PROCESO"}:{}, dh:cfg.tipos[state.tipo].pideDH?dhVal():""};
   var it={uid:uid,texto:texto,campos:camposSubida(texto),nombreFoto:nombreFoto(form),
           foto:state.foto?{data:state.foto.data,mime:state.foto.mime}:null,creado:t,turno:state.turno,fecha:form.fecha,
           form:JSON.stringify(form)};
@@ -1223,6 +1224,18 @@ function procedenciaCtl(fr){
   return fieldWrap("Procedencia",w,d.procOtra?"Queda guardada en este celular para la próxima vez. Para que la vea todo el equipo, agrégala en ⚙ Ajustes.":null);
 }
 /* detalle opcional del registro */
+/* densidad húmeda (DH) del reemplazo de agua: solo va en el texto, no en el RD */
+function dhVal(){ var v=str(state.d&&state.d.dh); return v&&isFinite(parseFloat(v))?v:""; }
+function dhCard(){
+  var t=cfg.tipos[state.tipo], d=state.d; if(!t||!t.pideDH) return null;
+  var i=el("input",{type:"text",inputmode:"decimal",value:d.dh||"",placeholder:"Ej: 2.135","data-fk":"dh",autocomplete:"off"});
+  if(d.fijo) i.setAttribute("readonly","");
+  i.addEventListener("input",function(e){
+    var raw=e.target.value, v=numFilter(raw); if(v!==raw) e.target.value=v;
+    d.dh=v; trasCambio(); render(); });
+  var x=parseFloat(d.dh), aviso = d.dh&&isFinite(x)&&(x<1||x>3.2) ? "⚠ Revisa el valor: lo usual está entre 1.0 y 3.2 g/cm³." : null;
+  return el("div",{class:"card"},[fieldWrap("DH · Densidad húmeda",el("div",{class:"row"},[i,el("span",{class:"u"},["g/cm³"])]),aviso||"Opcional. Sale en el texto después del ensayo; no va en el RD.")]);
+}
 function puedeHorno(){ var t=cfg.tipos[state.tipo]; return !!(t&&t.horno); }
 function detalleCard(){
   var d=state.d, c=el("div",{class:"card"});
@@ -1368,6 +1381,7 @@ function renderMain(app){
   /* la procedencia va después del correlativo; en un pendiente viene del ensayo que lo originó */
   var pcx=procedenciaCtl(fr); if(pcx) app.appendChild(el("div",{class:"card"},[pcx]));
   app.appendChild(detalleCard());
+  var dhc=dhCard(); if(dhc) app.appendChild(dhc);
   var t=computeTexto();
   if(t) app.appendChild(buildOutBox(t));
   else { var R=evaluar(); app.appendChild(el("div",{class:"hint"},[R.err.length?R.err[0]:"Falta: "+R.falta.join(", ")+"."])); }
@@ -2159,6 +2173,7 @@ function catalogoEnsayos(C){
       if(C.tipos.PROCTOR && t.id!=="PROCTOR" && t.asoc.indexOf("PROCTOR")<0) body.appendChild(tog("proc","Muestra el botón “Aplica Proctor estándar”"));
       if(!t.muestra) body.appendChild(tog("nEns","Pide N° de ensayo por capa"));
       if(!t.muestra) body.appendChild(tog("horno","Puede quedar en proceso (horno)"));
+      if(!t.muestra) body.appendChild(tog("pideDH","Pide densidad húmeda (DH)"));
       body.appendChild(tog("muestra","Es muestreo (el correlativo no lleva código de ensayo; en el RD sale MUESTREO)"));
       body.appendChild(tog("evalMat","Es evaluación de material (el correlativo usa "+(C.codEM||"EM")+" en lugar del código del material)"));
       body.appendChild(el("div",{class:"btns"},[
@@ -2177,7 +2192,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v25";
+var VERSION_APP="v26";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
