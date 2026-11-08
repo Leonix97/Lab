@@ -257,6 +257,24 @@
   .erow.on .eck{color:#111827}.erow.on .eck b{color:var(--ac2)}
   .erow.on .eck .bx{background:var(--ac);border-color:var(--ac)}
   .esig{flex:none;display:flex;align-items:center;gap:5px}
+  .tfrow{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.8fr) 32px;gap:6px;align-items:center;margin-bottom:6px}
+  .tfrow input{padding:8px 8px}
+  .tfh small{font-size:10.5px;color:#9ca3af}
+  .pbar{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1.5px solid #e5e7eb;border-radius:10px;background:#f9fafb;padding:11px 12px;font:inherit;color:inherit;cursor:pointer}
+  .pbar .pt{flex:1;min-width:0}
+  .pbar .pt b{display:block;font-size:14px}
+  .pbar .pt span{display:block;font-size:12.5px;color:#6b7280;margin-top:2px}
+  .pbar .ptot{font-size:18px;font-weight:800;white-space:nowrap}
+  .pbar.open{border-color:var(--acb);background:#fff}
+  .pgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-top:8px}
+  .pgrid input{padding:10px 2px;text-align:center;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
+  .pgrid input.lleno{background:#f0fdfa;border-color:#99f6e4}
+  .tfinfo{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#374151;margin-top:8px}
+  .tfinfo b{font-size:15px}
+  .g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  .live:empty{display:none}
+  .live.strong{font-size:15px}
+  .pbar .psub{font-size:12.5px;color:#6b7280;margin-top:2px;font-weight:500}
   .esig input{width:62px;padding:7px 8px;text-align:center;font-weight:700}
   .esig small{font-size:10.5px;color:#9ca3af;white-space:nowrap}
   .esig.warn input{border-color:#f59e0b;background:#fffbeb}
@@ -454,7 +472,9 @@ function sanitizeCfg(c){
       estructuras:ests.filter(function(x){ return x&&str(x.nombre); }).map(function(x){ return {nombre:up(x.nombre),codigo:codigoLimpio(x.codigo)}; }),
       mats:(Array.isArray(f.mats)?f.mats:[]).filter(function(x){ var ok=x&&nms.indexOf(x.m)>=0&&!vistos[x.m]; if(ok) vistos[x.m]=1; return ok; })
         .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens).map(function(k){ return mapaEv[k]||k; }).concat(sumarEval?["EVALMAT"]:[])).filter(function(k){ return ids.indexOf(k)>=0; }),
-                                  proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; })}; })};
+                                  proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; }),
+                                  tf:(Array.isArray(x.tf)?x.tf:[]).filter(function(t){ return t&&str(t.nombre); })
+                                    .map(function(t){ return {nombre:up(t.nombre),dms:str(t.dms),coph:str(t.coph)}; })}; })};
   }).filter(function(f){ return !!f.nombre; });
   if(!o.frentes.length) o.frentes=d.frentes;
   o.series={};
@@ -1349,7 +1369,7 @@ function ensayosCard(fr){
     if(d.sinGen) c.appendChild(noteBox(["Este ensayo no tiene ensayo generador: no hereda número, capa ni procedencia. Ingresa el correlativo y los datos abajo."],""));
   }
   if(state.tipo && CALC.tiene(state.tipo)) c.appendChild(el("button",{type:"button",class:"mini",style:"margin-top:12px;display:block",
-    onclick:function(){ CALC.elegir(state.tipo); state.view="calc"; render(); window.scrollTo(0,0); }},["🧮 Calcular este ensayo"]));
+    onclick:function(){ CALC.elegir(state.tipo,{frente:state.frente,mat:state.d&&state.d.material,registro:true}); state.view="calc"; render(); window.scrollTo(0,0); }},["🧮 Calcular este ensayo"]));
   return c;
 }
 /* capa: en un pendiente viene escrita del generador y no se modifica; en un ensayo nuevo se escribe aquí */
@@ -2187,6 +2207,19 @@ function materialFrenteCfg(C,f,x,j){
   });
   body.appendChild(el("div",{class:"fdesc",style:"margin:4px 0 14px"},[((f.estructuras||[]).length?"Cada estructura lleva su propio contador. ":"")+"El número es el siguiente de esa combinación; si lo cambias, la numeración sigue desde ahí."]));
   body.appendChild(fieldWrap("Procedencias que aplican",selCtl(C.procedencias,x.proc)));
+  /* test fill: Proctor de referencia para la calculadora del RA */
+  if(!Array.isArray(x.tf)) x.tf=[];
+  body.appendChild(el("div",{class:"glbl"},["Test fill (para calcular el RA)"]));
+  if(x.tf.length) body.appendChild(el("div",{class:"tfrow tfh"},[el("small",null,["Nombre"]),el("small",null,["DMS g/cm³"]),el("small",null,["COPH %"]),el("span")]));
+  x.tf.forEach(function(t,ti){
+    body.appendChild(el("div",{class:"tfrow"},[
+      cfgInput(t.nombre,"Ej: TF-01","tf_n_"+key+"_"+ti,function(v){ t.nombre=v; },{up:true,max:30}),
+      cfgInput(t.dms,"2.150","tf_d_"+key+"_"+ti,function(v){ t.dms=v; },{num:true,max:6}),
+      cfgInput(t.coph,"8.5","tf_c_"+key+"_"+ti,function(v){ t.coph=v; },{num:true,max:5}),
+      el("button",{class:"xb",type:"button","aria-label":"Quitar test fill",onclick:function(){ x.tf.splice(ti,1); markDirty(); render(); }},["✕"])]));
+  });
+  body.appendChild(el("button",{class:"add",type:"button",style:"margin-bottom:6px",onclick:function(){ x.tf.push({nombre:"",dms:"",coph:""}); markDirty(); render(); }},["+ Agregar test fill"]));
+  body.appendChild(el("div",{class:"fdesc",style:"margin:0 0 14px"},["Aparecen en 🧮 Calcular › Reemplazo de agua al elegir este frente y material."]));
   body.appendChild(el("div",{class:"btns",style:"margin-top:0"},[el("button",{class:"mini dng",type:"button",onclick:function(){
     if(confirm("¿Quitar “"+cap(x.m)+"” de este frente?")){ f.mats.splice(j,1); ed.matAb=null; markDirty(); render(); } }},["Quitar del frente"])]));
   box.appendChild(body);
@@ -2265,7 +2298,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v27";
+var VERSION_APP="v29";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
@@ -2382,7 +2415,7 @@ function nuevoForm(tipo){
   var d={};
   if(DENS[tipo]){ d.wModo="TARAS"; d.wDir=""; d.wt=[filaW()]; d.proctor=""; d.mds=""; d.och=""; d.req=String(cfg.compMin||"95"); d.ws=""; }
   if(tipo==="CONO"){ d.equipo=""; d.arenaCono=""; d.densArena=""; d.fi=""; d.ff=""; }
-  if(tipo==="REEMPLAZO"){ d.v1=""; d.v2=""; }
+  if(tipo==="REEMPLAZO") d={frente:"",mat:"",tf:"",mds:"",och:"",req:String(cfg.compMin||"95"),ci:"",cf:"",hi:"",hf:"",pesos:vacios(20),pAb:false};
   if(tipo==="HUMEDAD"){ d.m=[filaW(),filaW()]; }
   if(tipo==="GRANULO"){ d.mt=""; d.ml=""; d.np=false; d.llG=""; d.ipG="";
     d.tam=parseTamices(cfg.tamices).map(function(t){ return {n:t.n,mm:t.mm,r:""}; }); }
@@ -2471,18 +2504,58 @@ function calcCono(d){
   R.sum.V=v.V;
   return R;
 }
+/* ── reemplazo de agua: calibración, pesos, volumen del hoyo y test fill ── */
+function vacios(k){ var a=[]; for(var i=0;i<k;i++) a.push(""); return a; }
+/* peso de una casilla: 4 dígitos se leen con 2 decimales (2340 → 23.40); con punto se lee tal cual */
+function pesoVal(v){ v=str(v); if(!v) return NaN; if(v.indexOf(".")>=0) return parseFloat(v); return parseInt(v,10)/100; }
+function pesoFmt(v){ var x=pesoVal(v); return ok(x)?x.toFixed(2):""; }
+function pesoTot(d){ var t=0,c=0; (d.pesos||[]).forEach(function(p){ var v=pesoVal(p); if(ok(v)&&v>0){ t+=v; c++; } }); return {t:t,c:c}; }
+function volCal(d){ return n(d.cf)-n(d.ci); }
+function volTot(d){ return n(d.hf)-n(d.hi); }
+function frenteCalc(d){ var F=cfg_global(); return d.frente?findBy(F.frentes||[],"id",d.frente):null; }
+function matCalc(d){ var f=frenteCalc(d); return f&&d.mat?findBy(f.mats||[],"m",d.mat):null; }
+function tfsCalc(d){ var x=matCalc(d); return x&&Array.isArray(x.tf)?x.tf.filter(function(t){ return str(t.nombre); }):[]; }
+/* copia DMS y COPH del test fill elegido (o elige solo si hay uno) */
+function elegirTF(d){
+  if(d.tf==="MANUAL") return;
+  var l=tfsCalc(d);
+  if(!d.tf && l.length===1) d.tf=l[0].nombre;
+  var t=d.tf?findBy(l,"nombre",d.tf):null;
+  if(t){ d.mds=t.dms; d.och=t.coph; } else { d.tf=""; d.mds=""; d.och=""; }
+}
 function calcReemplazo(d){
-  var R=nr(), v1=n(d.v1), v2=n(d.v2), ws=n(d.ws), dh=NaN;
-  if(!ok(v1)) R.falta.push("agua para llenar el anillo");
-  if(!ok(v2)) R.falta.push("agua para llenar hoyo + anillo");
-  if(!(ws>0)) R.falta.push("masa del material extraído");
-  var V=v2-v1;
-  if(ok(V)){
-    if(V<=0) R.err.push("El volumen del hoyo sale "+fx(V,2)+" L: el agua del hoyo + anillo debe ser mayor que la del anillo.");
-    else { R.rows.push(["Volumen del hoyo",fx(V,2)+" L"]); dh=ws/V; }
+  var R=nr(), ci=n(d.ci), cf=n(d.cf), Vc=volCal(d), Vt=volTot(d), P=pesoTot(d), dh=NaN, V=NaN;
+  if(!ok(ci)) R.falta.push("lectura inicial de la calibración");
+  if(!ok(cf)) R.falta.push("lectura final de la calibración");
+  if(ok(Vc)){
+    if(Vc<=0) R.err.push("La calibración sale "+fx(Vc,2)+" L: la lectura final del caudalímetro debe ser mayor que la inicial.");
+    else R.rows.push(["Volumen de calibración",fx(Vc,2)+" L"]);
   }
-  densidades(R,d,dh);
-  R.sum.V=V;
+  if(!P.c) R.falta.push("pesos del material extraído");
+  else R.rows.push(["Material extraído",fx(P.t,2)+" kg · "+P.c+" pesos"]);
+  if(!ok(n(d.hi))||!ok(n(d.hf))) R.falta.push("lecturas del llenado de hoyo + anillo");
+  else if(Vt<=0) R.err.push("El llenado de hoyo + anillo sale "+fx(Vt,2)+" L: la lectura final debe ser mayor que la inicial.");
+  else if(Vc>0){
+    V=Vt-Vc;
+    if(V<=0) R.err.push("El volumen del hoyo sale "+fx(V,2)+" L: el llenado de hoyo + anillo debe ser mayor que la calibración.");
+    else R.rows.push(["Volumen del hoyo",fx(V,2)+" L"]);
+  }
+  if(P.c && V>0) dh=P.t/V;
+  if(ok(dh)){
+    R.rows.push(["Densidad húmeda (DH)",fx(dh,3)+" g/cm³"]);
+    if(dh<1||dh>3.2) R.warn.push("La densidad húmeda sale "+fx(dh,3)+" g/cm³: lo usual está entre 1.0 y 3.2. Revisa pesos y volúmenes.");
+  }
+  var mds=n(d.mds), och=n(d.och), rq=n(d.req); if(!(rq>0)) rq=95;
+  if(!(mds>0)||!ok(och)) R.falta.push(d.tf==="MANUAL"?"DMS y COPH":"test fill (DMS y COPH)");
+  var ds=dh/(1+och/100), C=ds/mds*100, res="";
+  if(ok(ds)&&mds>0) R.rows.push(["Densidad seca (con COPH "+fx(och,1)+" %)",fx(ds,3)+" g/cm³"]);
+  if(ok(C)&&mds>0){
+    var cumple=C>=rq; res=cumple?"CUMPLE":"NO CUMPLE";
+    R.rows.push(["% Compactación",fx(C,1)+" %",cumple?"ok":"bad"]);
+    R.rows.push(["Resultado",res+" (mín. "+rq+" %)",cumple?"ok":"bad"]);
+    if(C>110) R.warn.push("Compactación mayor a 110 %: revisa los pesos, los volúmenes o el test fill elegido.");
+  }
+  R.sum={dh:dh,ds:ds,C:C,V:V,mds:mds,och:och,req:rq,res:res,P:P.t};
   return R;
 }
 
@@ -2901,15 +2974,103 @@ function formCono(app){
   var c4=sec("Proctor y compactación"); proctorBlock(c4); app.appendChild(c4);
 }
 function formReemplazo(app){
-  var d=S.d;
-  var c1=sec("Volúmenes de agua","Con el anillo nivelado y el plástico colocado, mide el agua de cada llenado.");
-  c1.appendChild(numField("v1","Agua para llenar el anillo (sin excavar)","Ej: 41.2","L"));
-  c1.appendChild(numField("v2","Agua para llenar hoyo + anillo","Ej: 152.8","L"));
-  c1.appendChild(live(function(){ var V=n(d.v2)-n(d.v1); return V>0?"Volumen del hoyo: "+fx(V,2)+" L":"El volumen del hoyo es la diferencia de los dos llenados."; }));
-  c1.appendChild(numField("ws","Material húmedo extraído","Ej: 236.4","kg"));
+  var d=S.d, F=cfg_global(), fr=frenteCalc(d), x=matCalc(d);
+  /* frente y material: filtran los test fill */
+  var c0=sec("Frente y material","Para buscar el test fill (DMS y COPH) que corresponde.");
+  c0.appendChild(fieldWrap("Frente",selectCtl(fr?d.frente:"",(F.frentes||[]).map(function(f){ return f.id; }),
+    function(id){ var f=findBy(F.frentes,"id",id); return f?cap(f.nombre):id; },
+    function(v){ d.frente=v; d.mat=""; d.tf=""; elegirTF(d); render(); },"Elige el frente…")));
+  if(fr){
+    var ms=(fr.mats||[]).filter(function(m){ return (m.ens||[]).indexOf("REEMPLAZO")>=0; });
+    if(!ms.length) ms=fr.mats||[];
+    c0.appendChild(fieldWrap("Material",selectCtl(x?d.mat:"",ms.map(function(m){ return m.m; }),cap,
+      function(v){ d.mat=v; d.tf=""; elegirTF(d); render(); },"Elige el material…")));
+  }
+  app.appendChild(c0);
+  /* 1. calibración */
+  var c1=sec("1 · Calibración","Lecturas del caudalímetro al llenar el anillo con el plástico, antes de excavar.");
+  c1.appendChild(el("div",{class:"g2"},[
+    numField("ci","Lectura inicial","Ej: 1520.0","L"),
+    numField("cf","Lectura final","Ej: 1561.2","L")]));
+  c1.appendChild(live(function(){ var V=volCal(d); return ok(V)&&V>0?"Calibración (final − inicial): "+fx(V,2)+" L":"La calibración es la lectura final menos la inicial."; }));
   app.appendChild(c1);
-  var c3=sec("Humedad del material"); humBlock(c3); app.appendChild(c3);
-  var c4=sec("Proctor y compactación"); proctorBlock(c4); app.appendChild(c4);
+  /* 2. pesos */
+  var c2=sec("2 · Material extraído del hoyo","Escribe 4 dígitos por peso: 2340 → 23.40 kg. Pasa sola a la siguiente casilla.");
+  c2.appendChild(pesosBlock());
+  app.appendChild(c2);
+  /* 3. volumen del hoyo */
+  var c3=sec("3 · Volumen del hoyo","Lecturas del caudalímetro al llenar hoyo + anillo, con el plástico colocado.");
+  c3.appendChild(el("div",{class:"g2"},[
+    numField("hi","Lectura inicial","Ej: 1561.2","L"),
+    numField("hf","Lectura final","Ej: 1672.8","L")]));
+  c3.appendChild(live(function(){ var T=volTot(d); return ok(T)&&T>0?"Hoyo + anillo (final − inicial): "+fx(T,2)+" L":""; }));
+  c3.appendChild(live(function(){ var V=volTot(d)-volCal(d); return volCal(d)>0&&V>0?"Volumen del hoyo: "+fx(V,2)+" L":"Volumen del hoyo = (hoyo + anillo) − calibración."; }));
+  c3.appendChild(live(function(){ var P=pesoTot(d), V=volTot(d)-volCal(d); return P.c&&volCal(d)>0&&V>0?"DH = "+fx(P.t,2)+" kg ÷ "+fx(V,2)+" L = "+fx(P.t/V,3)+" g/cm³":""; },"live strong"));
+  app.appendChild(c3);
+  /* 4. test fill */
+  var c4=sec("4 · Test fill","Con su COPH se calcula la densidad seca y con su DMS el % de compactación.");
+  var l=tfsCalc(d), opts=l.map(function(t){ return t.nombre; }).concat(["MANUAL"]);
+  c4.appendChild(selectCtl(d.tf,opts,function(k){
+      if(k==="MANUAL") return "Otro: escribir DMS y COPH";
+      var t=findBy(l,"nombre",k); return t.nombre+" · DMS "+(t.dms||"?")+" · COPH "+(t.coph||"?")+" %"; },
+    function(v){ d.tf=v; if(v==="MANUAL"){ d.mds=""; d.och=""; } elegirTF(d); render(); },
+    l.length?"Elige el test fill…":(x?"Este material aún no tiene test fill":"Elige frente y material…")));
+  if(!l.length && x) c4.appendChild(el("div",{class:"fdesc",style:"margin-top:6px"},["Agrégalos en ⚙ › Frentes › "+cap(fr.nombre)+" › "+cap(x.m)+" › Editar › Test fill."]));
+  if(d.tf==="MANUAL"){
+    c4.appendChild(el("div",{class:"g2",style:"margin-top:10px"},[
+      numField("mds","DMS","Ej: 2.150","g/cm³"),
+      numField("och","COPH","Ej: 8.5","%")]));
+  } else if(d.tf){
+    c4.appendChild(el("div",{class:"tfinfo"},[el("span",null,["DMS ",el("b",null,[d.mds||"—"])," g/cm³"]),el("span",null,["COPH ",el("b",null,[d.och||"—"])," %"])]));
+  }
+  app.appendChild(c4);
+}
+/* casillas de pesos: plegable; abierta muestra la grilla, cerrada solo el total */
+function pesosBlock(){
+  var d=S.d, w=el("div");
+  if(!Array.isArray(d.pesos)) d.pesos=vacios(20);
+  var bar=el("button",{type:"button",class:"pbar"+(d.pAb?" open":""),onclick:function(){
+      d.pAb=!d.pAb; d.pesos.forEach(function(p,i){ d.pesos[i]=pesoFmt(p); }); render();
+      if(d.pAb) enfocarPeso(primeraVacia()); }},[
+    el("span",{class:"pt"},[el("b",null,["⚖ Pesos del material"]),
+      live(function(){ var P=pesoTot(d); return P.c?P.c+" pesos · "+(d.pAb?"toca aquí para cerrar":"toca para editar"):"Toca para ingresar los pesos"; },"psub")]),
+    live(function(){ var P=pesoTot(d); return P.c?fx(P.t,2)+" kg":"▾"; },"ptot")]);
+  w.appendChild(bar);
+  if(!d.pAb) return w;
+  var g=el("div",{class:"pgrid"});
+  d.pesos.forEach(function(p,i){ g.appendChild(pesoCell(i)); });
+  w.appendChild(g);
+  w.appendChild(el("div",{class:"btns"},[
+    el("button",{class:"b-sec",type:"button",onclick:function(){ for(var k=0;k<5;k++) d.pesos.push(""); render(); enfocarPeso(primeraVacia()); }},["+ 5 casillas"]),
+    el("button",{class:"b-pri",type:"button",onclick:function(){ d.pAb=false; d.pesos.forEach(function(p,i){ d.pesos[i]=pesoFmt(p); }); render(); }},["✓ Listo"])]));
+  return w;
+}
+function primeraVacia(){ var p=S.d.pesos; for(var i=0;i<p.length;i++) if(!str(p[i])) return i; return p.length-1; }
+function enfocarPeso(i){ var c=document.querySelector('[data-fk="pesos.'+i+'"]'); if(c){ try{ c.focus(); c.select(); }catch(e){} } }
+function pesoCell(i){
+  var d=S.d, v=str(d.pesos[i]);
+  var c=el("input",{type:"text",inputmode:"numeric",value:v,placeholder:String(i+1),"data-fk":"pesos."+i,
+    autocomplete:"off",enterkeyhint:"next",class:v?"lleno":"","aria-label":"Peso "+(i+1)});
+  c.addEventListener("focus",function(){ try{ c.select(); }catch(e){} });
+  c.addEventListener("input",function(e){
+    var raw=e.target.value, val, listo=false;
+    if(/[.,]/.test(raw)) val=numFilter(raw.replace(",","."));
+    else { var dg=raw.replace(/\D/g,"").slice(0,4); if(dg.length===4){ val=dg.slice(0,2)+"."+dg.slice(2); listo=true; } else val=dg; }
+    if(val!==raw) e.target.value=val;
+    d.pesos[i]=val; e.target.className=val?"lleno":"";
+    refresh();
+    if(listo){
+      if(i===d.pesos.length-1){ for(var k=0;k<5;k++) d.pesos.push(""); render(); }
+      enfocarPeso(i+1);
+    }
+  });
+  c.addEventListener("blur",function(){ var f=pesoFmt(d.pesos[i]); if(f!==str(d.pesos[i])){ d.pesos[i]=f; c.value=f; refresh(); } });
+  c.addEventListener("keydown",function(e){
+    if(e.key!=="Enter") return; e.preventDefault();
+    if(!str(c.value)){ d.pAb=false; d.pesos.forEach(function(p,k){ d.pesos[k]=pesoFmt(p); }); render(); }
+    else enfocarPeso(i+1<d.pesos.length?i+1:i);
+  });
+  return c;
 }
 function formHumedad(app){
   var d=S.d;
@@ -3003,9 +3164,18 @@ function buildRes(){
 }
 function evaluar(){ return TESTS[S.tipo].calc(S.d); }
 /* pantalla */
-function elegir(k){ S.tipo=k; if(!S.datos[k]) S.datos[k]=nuevoForm(k); S.d=S.datos[k]; }
+function elegir(k,o){ S.tipo=k; if(!S.datos[k]) S.datos[k]=nuevoForm(k); S.d=S.datos[k]; S.origen=null;
+  o=o||{};
+  if(k==="REEMPLAZO"){
+    if(o.frente && o.frente!==S.d.frente){ S.d.frente=o.frente; S.d.mat=""; S.d.tf=""; }
+    if(o.mat && o.mat!==S.d.mat){ S.d.mat=o.mat; S.d.tf=""; }
+    if(o.registro) S.origen="registro";
+    elegirTF(S.d);
+  }
+}
 function vista(app){
   liveCells=[];
+  if(S.tipo==="REEMPLAZO" && S.d && !S.d.frente && window.state && state.frente) S.d.frente=state.frente;
   var c=sec("¿Qué ensayo vas a calcular?","Ingresa los datos del laboratorio para verificar resultados y gráficas. Por ahora no se suben.");
   c.appendChild(optsCtl(S.tipo,Object.keys(TESTS).filter(function(k){ return !!cfg_global().tipos[k]; }),function(v){ elegir(v); render(); },
     {labelFn:function(k){ return cap(cfg_global().tipos[k].corto); }}));
@@ -3014,6 +3184,13 @@ function vista(app){
   if(!S.d) elegir(S.tipo);
   TESTS[S.tipo].form(app);
   app.appendChild(buildRes());
+  if(S.tipo==="REEMPLAZO" && S.origen==="registro" && window.state && state.d && state.tipo==="REEMPLAZO" && !state.d.fijo)
+    app.appendChild(el("div",{class:"btns"},[el("button",{class:"b-pri",type:"button",onclick:function(){
+      var R=evaluar(), dh=R.sum.dh;
+      if(!ok(dh)){ alert("Aún no hay densidad húmeda: completa calibración, pesos y volumen del hoyo."); return; }
+      state.d.dh=dh.toFixed(3); if(typeof trasCambio==="function") trasCambio();
+      state.view="main"; state.flash="DH "+dh.toFixed(3)+" g/cm³ copiada al registro."; render(); window.scrollTo(0,0);
+    }},["↩ Usar la DH en el registro"])]));
   app.appendChild(el("div",{class:"btns"},[el("button",{class:"b-dng",type:"button",onclick:function(){
     if(confirm("¿Borrar los datos de este cálculo?")){ S.datos[S.tipo]=nuevoForm(S.tipo); S.d=S.datos[S.tipo]; render(); } }},["Limpiar datos"])]));
 }
