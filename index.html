@@ -889,10 +889,12 @@ function cabecera(app){
       badge?el("span",{class:"badge"},[String(badge)]):null]);
   }
   app.appendChild(el("div",{class:"tabs",role:"tablist"},[
-    tab("main","＋","Nuevo",0,function(){ state.view="main"; render(); window.scrollTo(0,0); }),
+    tab("main",state.edit?"✏️":"＋",state.edit?"Editando":"Nuevo",0,function(){ state.view="main"; render(); window.scrollTo(0,0); }),
     tab("pend","⏳","Pendientes",np,function(){ state.view="pend"; render(); window.scrollTo(0,0); syncCodigos(false); }),
     tab("hoy","📋","Del día",0,abrirDia)]));
-  if(state.flash){ app.appendChild(noteBox([state.flash],"ok")); state.flash=""; }
+  if(state.flash){ app.appendChild(noteBox([state.flash],"ok"));
+    if(state.flashTxt!==state.flash){ state.flashTxt=state.flash; state.flashT=Date.now(); }
+    else if(Date.now()-state.flashT>2500){ state.flash=""; state.flashTxt=""; } }
   var av=avisoCola(); if(av) app.appendChild(av);
 }
 
@@ -905,7 +907,7 @@ function turnoInicial(){ if(prefs.turno==="DÍA"||prefs.turno==="NOCHE") return 
 /* turno noche: pasada la medianoche sigue siendo la fecha en que empezó el turno */
 function fechaAuto(){ var d=new Date(); if(state.turno==="NOCHE" && d.getHours()<12) d.setDate(d.getDate()-1); return ymd(d); }
 function fechaManual(){ var m=prefs.fechaMan; return (m && /^\d{4}-\d{2}-\d{2}$/.test(m.f||"") && Date.now()-(m.at||0)<MAN_HORAS*3600e3) ? m.f : ""; }
-function fechaActual(){ return fechaManual()||fechaAuto(); }
+function fechaActual(){ return state.edit ? state.edit.fecha : (fechaManual()||fechaAuto()); }
 function turnoBtn(){
   var esDia=state.turno!=="NOCHE";
   var b=el("button",{class:"turno "+(esDia?"dia":"noche"),type:"button","aria-label":"Cambiar de turno"});
@@ -914,11 +916,12 @@ function turnoBtn(){
   return b;
 }
 function fechaCtl(){
-  var man=!!fechaManual(), f=fechaActual();
+  var man=!state.edit&&!!fechaManual(), f=fechaActual();
   var i=el("input",{type:"date",class:"fecha"+(man?" man":""),value:f,max:hoyStr(1),"aria-label":"Fecha del ensayo","data-fk":"fecha"});
   i.addEventListener("change",function(e){
     var v=e.target.value;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    if(state.edit){ state.edit.fecha=v; render(); return; }
     prefs.fechaMan = v===fechaAuto() ? null : {f:v,at:Date.now()};
     savePrefs(); trasCambio(); render();
   });
@@ -958,7 +961,7 @@ function ligarGenerador(p){
 }
 function sugCod(k){ return deGenerador(k) ? state.pend.n : sigCod(k); }
 function existeCod(k,num){ var f=state.frente, m=matKey(), es=state.d.estructura||"";
-  return todosUsos().some(function(u){ return u.k===k && u.f===f && mkDe(u)===m && (u.es||"")===es && u.n===num && u.t>=(serie(k,f,m,null,es).reinicio||0); }); }
+  return todosUsos().some(function(u){ return u.k===k && u.f===f && mkDe(u)===m && (u.es||"")===es && u.n===num && u.t>=(serie(k,f,m,null,es).reinicio||0) && !(state.edit&&u.u===state.edit.uid); }); }
 function codigoActual(){ var d=state.d; return d.fijo?d.fijo.cod : d.codEdit?ent(d.codN) : sugCod(state.tipo); }
 function capaLista(){ var d=state.d; return enCapa(state.frente,d.material,d.capa,state.tipo); }
 /* n° de ensayo: con capa se propone el siguiente de esa capa; sin capa es opcional */
@@ -998,17 +1001,17 @@ function evaluar(){
   R.dupCod=false;
   if(!mu && !d.fijo && R.cod>=1){
     var sug=sugCod(state.tipo), ult=ultCod(state.tipo), gen=deGenerador(state.tipo);
-    if(d.codEdit && R.cod!==sug) R.warn.push("Cambiaste el correlativo sugerido ("+codCorto(state.tipo,sug)+(gen?", el de su generador":"")+").");
+    if(d.codEdit && !state.edit && R.cod!==sug) R.warn.push("Cambiaste el correlativo sugerido ("+codCorto(state.tipo,sug)+(gen?", el de su generador":"")+").");
     R.dupCod = existeCod(state.tipo,R.cod);
     if(R.dupCod) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" ya está registrado en este frente y material.");
-    else if(d.codEdit && !gen && R.cod<=ult) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" podría estar repetido: el último registrado es "+codCorto(state.tipo,ult)+".");
+    else if(d.codEdit && !gen && !state.edit && R.cod<=ult) R.warn.push("⚠ "+codCorto(state.tipo,R.cod)+" podría estar repetido: el último registrado es "+codCorto(state.tipo,ult)+".");
   }
   R.dupN=false;
   if(usaNEns(state.tipo) && !d.fijo && R.capa && d.material && R.nEns>=1){
-    R.dupN = capaLista().some(function(u){ return u.e===R.nEns; });
+    R.dupN = capaLista().some(function(u){ return u.e===R.nEns && !(state.edit&&u.u===state.edit.uid); });
     if(R.dupN) R.warn.push("⚠ Ya existe un "+cfg.tipos[state.tipo].corto.toLowerCase()+" N° "+R.nEns+" en la capa "+R.capa+".");
   }
-  R.asoc = d.fijo ? (d.fijo.asoc||[]) : asocElegidos();
+  R.asoc = d.fijo ? (d.fijo.asoc||[]) : state.edit ? (state.edit.form.asoc||[]) : asocElegidos();
   R.ok = !R.falta.length && !R.err.length;
   return R;
 }
@@ -1030,9 +1033,9 @@ function computeTexto(){
           str(d.procedencia)?"PROCEDENCIA: "+str(d.procedencia).replace(/\s+/g," "):null,
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
           !mu&&R.nEns>=1?"N° ENSAYO: "+R.nEns:null,
-          state.pend?"REFERENCIA: "+(state.pend.cod||"MUESTRA "+fechaTxt(state.pend.d)):null,
+          state.pend?"REFERENCIA: "+(state.pend.cod||"MUESTRA "+fechaTxt(state.pend.d)):(state.edit&&state.edit.form.padreCod?"REFERENCIA: "+state.edit.form.padreCod:null),
           puedeHorno()&&d.horno?"ESTADO: EN PROCESO":null,
-          sesion?"REALIZADO POR: "+sesion.nombre:null,
+          state.edit&&lineaDe(state.edit.texto,"REALIZADO POR")?"REALIZADO POR: "+lineaDe(state.edit.texto,"REALIZADO POR"):(sesion?"REALIZADO POR: "+sesion.nombre:null),
           R.asoc.length?"ENSAYOS PENDIENTES: "+R.asoc.map(function(k){ return cfg.tipos[k].abrev; }).join(", "):null]
     .filter(function(x){ return x!=null; }).join("\n");
 }
@@ -1073,6 +1076,7 @@ function buildOutBox(texto){
     iconBtn("✕","del",function(){ state.foto=null; render(); })]));
   var sig=firmaSubida(texto);
   var sub=state.subida && state.subida.sig===sig ? state.subida : null;
+  if(state.edit) return cajaEdicion(out,sub);
   var bUp=el("button",{class:"b-ok",type:"button",disabled:!!(sub&&sub.estado!=="error")},[
     !sub?"⬆ Subir ensayo":sub.estado==="subiendo"?"Subiendo…":sub.estado==="ok"?"✓ Subido":sub.estado==="cola"?"✓ En cola":"⬆ Reintentar"]);
   bUp.addEventListener("click",subirEnsayo);
@@ -1126,6 +1130,70 @@ function nombreFoto(f){
   var fr=getFrente(f.frente);
   return [f.cod||"MUESTRA",cfg.tipos[f.tipo].corto,f.material,f.capa?"CAPA "+f.capa:"",f.nEns?"N° "+f.nEns:"",fr?(fr.corto||fr.nombre):""].filter(Boolean).join(" - ");
 }
+/* ════ EDITAR UN REGISTRO (solo usuarios con permiso) ════ */
+function editarEnsayo(it){
+  var f=formDe(it);
+  if(!f || !cfg.tipos[f.tipo] || !getFrente(f.frente)){ alert("Este registro no se puede editar aquí (tipo o frente que ya no está en los ajustes). Puedes eliminarlo y registrarlo de nuevo."); return; }
+  var rec=recDeForm(f);
+  state.edit={id:it.id,uid:it.uid||(rec&&rec.u)||"",form:f,fecha:f.fecha||it.fecha,turnoPrev:state.turno,fotoUrl:it.foto||"",texto:it.texto};
+  state.turno=f.turno||it.turno||state.turno;
+  state.frente=f.frente; state.tipo=""; resetForm(true); state.tipo=f.tipo;
+  var d=state.d, fr=getFrente(f.frente);
+  d.estructura=f.estructura||""; d.material=f.material||""; d.capa=f.capa||"";
+  d.procedencia=f.procedencia||""; d.procOtra=!!(d.procedencia && procedenciasDe(fr,d.material).indexOf(d.procedencia)<0);
+  if(f.codN){ d.codEdit=true; d.codN=String(f.codN); }
+  if(f.nEns){ d.nEdit=true; d.nEns=String(f.nEns); }
+  var det=lineaDe(it.texto,"DETALLE"); d.conDetalle=!!det; d.detalle=det;
+  d.dh=f.dh||lineaDe(it.texto,"DH").replace(/\s*g\/cm.*$/,"");
+  d.horno=!!(f.o&&f.o.__PROC__);
+  state.view="main"; render(); window.scrollTo(0,0);
+}
+function salirEdicion(volver){
+  var e=state.edit; if(!e) return;
+  state.turno=e.turnoPrev||state.turno; state.edit=null; state.subida=null; state.foto=null;
+  resetForm(true);
+  if(volver){ state.view="hoy"; cargarDia(volver); } else render();
+}
+function cajaEdicion(out,sub){
+  var e=state.edit;
+  if(!state.foto && e.fotoUrl) out.appendChild(el("div",{class:"stat"},["Foto actual: ",el("a",{href:e.fotoUrl,target:"_blank",rel:"noopener"},["ver"]),". Con 📷 o 🖼️ la reemplazas."]));
+  var bUp=el("button",{class:"b-ok",type:"button",disabled:!!(sub&&sub.estado==="subiendo")},[sub&&sub.estado==="subiendo"?"Guardando…":"💾 Guardar cambios"]);
+  bUp.addEventListener("click",guardarEdicion);
+  out.appendChild(el("div",{class:"btns"},[bUp,el("button",{class:"b-sec",type:"button",onclick:function(){ salirEdicion(e.fecha); }},["Cancelar"])]));
+  if(sub && sub.estado==="error") out.appendChild(el("div",{class:"stat err"},[sub.msg]));
+  return out;
+}
+function guardarEdicion(){
+  var texto=computeTexto(); if(!texto) return;
+  var e=state.edit, d=state.d, R=evaluar(), sig=firmaSubida(texto);
+  var alertas=[];
+  if(R.dupCod) alertas.push("El correlativo "+codCorto(state.tipo,R.cod)+" ya está registrado en otro ensayo.");
+  if(R.dupN) alertas.push("Ya existe otro ensayo N° "+R.nEns+" en la capa "+R.capa+".");
+  if(alertas.length && !confirm(alertas.join("\n")+"\n\n¿Guardar de todas formas?")) return;
+  var o={}; Object.keys(e.form.o||{}).forEach(function(k){ o[k]=e.form.o[k]; });
+  if(puedeHorno()&&d.horno){ if(!o.__PROC__) o.__PROC__="EN PROCESO"; } else { delete o.__PROC__; delete o.__FIN__; }
+  var prN=str(d.procedencia).replace(/\s+/g," "), nE=R.nEns>=1?R.nEns:0;
+  var form={}; Object.keys(e.form).forEach(function(k){ form[k]=e.form[k]; });
+  form.frente=state.frente; form.estructura=d.estructura||""; form.evalMat=esEval(); form.tipo=state.tipo; form.material=d.material;
+  form.procedencia=prN; form.capa=R.capa; form.nEns=nE; form.fecha=fechaActual(); form.turno=state.turno;
+  form.cod=fmtCod(state.tipo,R.cod); form.codN=R.cod; form.dh=cfg.tipos[state.tipo].pideDH?dhVal():""; form.o=o;
+  form.editado=(sesion?sesion.nombre:"")+" "+ymd(new Date());
+  state.subida={sig:sig,estado:"subiendo"}; render();
+  api("editar",{id:e.id,texto:texto,campos:camposSubida(texto),fecha:form.fecha,turno:form.turno,form:JSON.stringify(form),
+                foto:state.foto?{data:state.foto.data,mime:state.foto.mime}:null,nombreFoto:nombreFoto(form)},90000).then(function(){
+    function fuera(a){ return a.filter(function(u){ return !((e.uid&&u.u===e.uid)||(u.t===e.form.t&&u.k===e.form.tipo)); }); }
+    usos=fuera(usos); usosSrv=fuera(usosSrv);
+    registrarUso({u:e.uid,k:form.tipo,n:form.codN,t:form.t,f:form.frente,es:form.estructura,em:form.evalMat,m:form.material,pr:form.procedencia,
+                  c:form.capa,e:nE,cod:form.cod,d:form.fecha,tu:form.turno,a:form.asoc||[],p:form.padre||"",o:o});
+    lsSet(STORE_USOS_SRV,JSON.stringify(usosSrv));
+    state.flash="Cambios guardados en "+e.id+" ("+form.cod+").";
+    salirEdicion(form.fecha); syncCodigos(true);
+  },function(err){
+    state.subida={sig:sig,estado:"error",msg:err.server?"No se pudo guardar: "+err.message:"Sin señal: para editar necesitas conexión. Inténtalo de nuevo."};
+    render();
+  });
+}
+
 function subirEnsayo(){
   var texto=computeTexto(); if(!texto) return;
   var sig=firmaSubida(texto), d=state.d, R=evaluar(), mu=false;
@@ -1263,7 +1331,7 @@ function ensayosCard(fr){
   c.appendChild(el("div",{class:"tgrid"},disp.map(tarjetaEnsayo)));
   if(state.tipo && puedeProctor()) c.appendChild(proctorToggle());
   /* ensayo que no es generador: se elige de qué generador proviene (RA, CA, EM…) o se ingresa el correlativo sin generador */
-  var gens=state.tipo&&!esGenerador(state.tipo)?generadoresDe(state.tipo):[];
+  var gens=state.tipo&&!esGenerador(state.tipo)&&!state.edit?generadoresDe(state.tipo):[];
   if(gens.length){
     c.appendChild(el("div",{class:"glbl",style:"margin-top:14px"},["¿Proviene de un ensayo generador?"]));
     c.appendChild(optsCtl(d.genTipo,gens,function(v){ d.genTipo=v; d.sinGen=false; trasCambio(); render(); },
@@ -1344,6 +1412,10 @@ function resumenMuestra(r){
 }
 function renderMain(app){
   cabecera(app);
+  if(state.edit) app.appendChild(el("div",{class:"pband",style:"margin-bottom:14px;background:#eff6ff;border-color:#93c5fd;color:#1e3a8a"},[
+    el("div",{class:"pb-t"},["✏️ Editando ",el("b",null,[lineaDe(state.edit.texto,"CORRELATIVO")||state.edit.id])]),
+    el("div",{class:"pb-d",style:"color:#1e40af"},["Registro "+state.edit.id+". Cambia lo que necesites y pulsa “Guardar cambios”. La versión anterior queda en la hoja «Ediciones»."]),
+    el("button",{class:"mini",type:"button",onclick:function(){ salirEdicion(state.edit.fecha); }},["✕ Cancelar edición"])]));
   var d=state.d, card=el("div",{class:"card"});
   card.appendChild(el("div",{class:"trow"},[fechaCtl(),turnoBtn()]));
   if(fechaManual()) card.appendChild(el("div",{class:"fdesc",style:"text-align:right;margin:-8px 0 12px"},["Fecha editada a mano · "+DIAS[fechaDe(fechaActual()).getDay()].toLowerCase()]));
@@ -1519,6 +1591,7 @@ function tarjetaLib(it,sub,pendiente){
     pen?el("span",null,["⏳ dejó: "+pen]):null,
     el("div",{class:"lib-acc"},[
       el("button",{class:"mini",type:"button",onclick:function(){ duplicar(it); }},["⧉ Copiar datos"]),
+      sesion&&sesion.borrar&&!pendiente&&it.id&&(formDe(it)||{}).tipo!=="SIN_ACT"?el("button",{class:"mini",type:"button",onclick:function(){ editarEnsayo(it); }},["✏️ Editar"]):null,
       sesion&&sesion.borrar&&!pendiente&&it.id?el("button",{class:"mini dng",type:"button",onclick:function(){ borrarEnsayo(it); }},["🗑 Eliminar"]):null]),
     el("details",null,[el("summary",null,["Ver texto"]),el("pre",null,[t])])
   ])];
@@ -2192,7 +2265,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v26";
+var VERSION_APP="v27";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
