@@ -290,6 +290,7 @@
 
   .hbtn.on{background:rgba(255,255,255,.3)}
   .mini.on{background:var(--ac2);color:#fff}
+  .prow .go.ok{color:#166534;background:#f0fdf4;border-color:#bbf7d0}
 </style>
 </head>
 <body>
@@ -350,7 +351,8 @@ var REP_CAMPOS = [
 function defaultReporte(){ var r={}; REP_CAMPOS.forEach(function(c){ r[c[0]]=c[2]; }); return r; }
 
 function E(id,abrev,largo,corto,norma,o){ o=o||{};
-  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat}; }
+  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat,
+          horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0}; }
 function defaultEnsayos(){
   return [
     E("REEMPLAZO","RA","DENSIDAD DE CAMPO - REEMPLAZO DE AGUA","REEMPLAZO DE AGUA","ASTM D5030",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,nEns:true}),
@@ -408,7 +410,7 @@ function sanitizeEnsayo(t,b){
           largo:up(t.largo)||b.largo||"", corto:up(t.corto)||b.corto||"", norma:t.norma!=null?up(t.norma):(b.norma||""),
           asoc:arrStr(t.asoc!=null?t.asoc:b.asoc), proc:t.proc!=null?!!t.proc:!!b.proc,
           nEns:t.nEns!=null?!!t.nEns:!!b.nEns, muestra:t.muestra!=null?!!t.muestra:!!b.muestra,
-          evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat};
+          evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat, horno:t.horno!=null?!!t.horno:!!b.horno};
 }
 function sanitizeCfg(c){
   var d = defaultConfig();
@@ -421,7 +423,7 @@ function sanitizeCfg(c){
   o.digCod = String(digitos(c.digCod,3));
   o.formato = /\{N\}/i.test(str(c.formato)) ? str(c.formato).toUpperCase() : "{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}";
   o.codEM = codigoLimpio(c.codEM)||"EM";
-  o.ensayos = (Array.isArray(c.ensayos)?c.ensayos:d.ensayos).map(function(t){ return sanitizeEnsayo(t); })
+  o.ensayos = (Array.isArray(c.ensayos)?c.ensayos:d.ensayos).map(function(t){ return sanitizeEnsayo(t,findBy(d.ensayos,"id",t&&t.id)); })
     .filter(function(t){ return t.id && (t.corto||t.largo); });
   if(!o.ensayos.length) o.ensayos=d.ensayos;
   var ids=o.ensayos.map(function(t){ return t.id; });
@@ -623,7 +625,18 @@ function pendientes(){
   out.sort(function(a,b){ return (a.r.t||0)-(b.r.t||0); });
   return out;
 }
-function nPendientes(){ var n=0; pendientes().forEach(function(p){ n+=p.falta.length; }); return n; }
+/* ensayos que quedan en el horno: al registrar llevan la marca __PROC__; al terminar se agrega __FIN__ (fecha|turno|nombre) */
+function marcas(r){ var aj=ajustesLoc[r.u]||{}, o={}; [r.o||{},aj.o||{}].forEach(function(x){ Object.keys(x).forEach(function(k){ o[k]=x[k]; }); }); return o; }
+function enProceso(r){ var o=marcas(r); return !!(o.__PROC__ && !o.__FIN__); }
+function finDe(r){ var o=marcas(r); if(!o.__FIN__) return null; var p=String(o.__FIN__).split("|"); return {d:p[0],tu:p[1],por:p[2]}; }
+function enProcesoTodos(){ return todosUsos().filter(function(r){ return r.u && cfg.tipos[r.k] && enProceso(r); }).sort(function(a,b){ return (a.t||0)-(b.t||0); }); }
+function terminarEnsayo(r){
+  var f=fechaActual();
+  if(!confirm("¿Terminar "+codCorto(r.k,r.n)+" ("+cap(cfg.tipos[r.k].corto).toLowerCase()+")?\nSe registra como terminado el "+fechaTxt(f)+", turno "+state.turno.toLowerCase()+".")) return;
+  ajustarPadre(r.u,[],{"__FIN__":[f,state.turno,sesion?sesion.nombre:""].join("|")});
+  state.flash="Terminado: "+codCorto(r.k,r.n)+"."; render();
+}
+function nPendientes(){ var n=enProcesoTodos().length; pendientes().forEach(function(p){ n+=p.falta.length; }); return n; }
 
 /* ════════════════════════════════════════════════════════════════
    SISTEMA DEL EQUIPO (Google Apps Script)
@@ -775,7 +788,7 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
+function nuevoForm(){ return {horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
@@ -1008,6 +1021,7 @@ function computeTexto(){
           "TURNO: "+state.turno,
           "PROYECTO: "+fr.nombre,
           d.estructura?"ESTRUCTURA: "+d.estructura:null,
+          d.conDetalle&&str(d.detalle)?"DETALLE: "+str(d.detalle).replace(/\s+/g," ").toUpperCase():null,
           R.capa?"CAPA: "+R.capa:null,
           "MATERIAL: "+d.material,
           esEval()&&!(t&&t.evalMat)?"PROPÓSITO: EVALUACIÓN DE MATERIAL":null,
@@ -1016,8 +1030,8 @@ function computeTexto(){
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
           !mu&&R.nEns>=1?"N° ENSAYO: "+R.nEns:null,
           state.pend?"REFERENCIA: "+(state.pend.cod||"MUESTRA "+fechaTxt(state.pend.d)):null,
+          puedeHorno()&&d.horno?"ESTADO: EN PROCESO":null,
           sesion?"REALIZADO POR: "+sesion.nombre:null,
-          d.conDetalle&&str(d.detalle)?"DETALLE: "+str(d.detalle).replace(/\s+/g," ").toUpperCase():null,
           R.asoc.length?"ENSAYOS PENDIENTES: "+R.asoc.map(function(k){ return cfg.tipos[k].abrev; }).join(", "):null]
     .filter(function(x){ return x!=null; }).join("\n");
 }
@@ -1126,13 +1140,14 @@ function subirEnsayo(){
   var t=Date.now(), nE=R.nEns>=1?R.nEns:0, uid=newId();
   var form={v:4,frente:state.frente,estructura:d.estructura||"",evalMat:esEval(),tipo:state.tipo,material:d.material,procedencia:prN,capa:R.capa,nEns:nE,
             fecha:fechaActual(),turno:state.turno,cod:mu?"":fmtCod(state.tipo,R.cod),codN:mu?0:R.cod,t:t,asoc:R.asoc,
-            padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:""};
+            padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:"",
+            o:puedeHorno()&&d.horno?{__PROC__:"EN PROCESO"}:{}};
   var it={uid:uid,texto:texto,campos:camposSubida(texto),nombreFoto:nombreFoto(form),
           foto:state.foto?{data:state.foto.data,mime:state.foto.mime}:null,creado:t,turno:state.turno,fecha:form.fecha,
           form:JSON.stringify(form)};
   d.fijo={cod:mu?NaN:R.cod,nEns:nE,asoc:R.asoc};
   registrarUso({u:uid,k:state.tipo,n:form.codN,t:t,f:form.frente,es:form.estructura,em:form.evalMat,m:form.material,pr:form.procedencia,c:form.capa,e:nE,
-                cod:form.cod,d:form.fecha,tu:form.turno,a:form.asoc,p:form.padre});
+                cod:form.cod,d:form.fecha,tu:form.turno,a:form.asoc,p:form.padre,o:form.o});
   state.subida={sig:sig,estado:"subiendo"}; render();
   enviarItem(it).then(function(j){
     if(state.subida&&state.subida.sig===sig) state.subida={sig:sig,estado:"ok",id:j.id,dup:j.dupCorrelativo?"el correlativo "+form.cod:""};
@@ -1208,15 +1223,23 @@ function procedenciaCtl(fr){
   return fieldWrap("Procedencia",w,d.procOtra?"Queda guardada en este celular para la próxima vez. Para que la vea todo el equipo, agrégala en ⚙ Ajustes.":null);
 }
 /* detalle opcional del registro */
+function puedeHorno(){ var t=cfg.tipos[state.tipo]; return !!(t&&t.horno); }
 function detalleCard(){
   var d=state.d, c=el("div",{class:"card"});
-  if(d.fijo){ if(d.conDetalle&&str(d.detalle)) c.appendChild(fieldWrap("Detalle",el("div",{class:"fixed",style:"font-size:14px;font-weight:600"},[str(d.detalle)]))); else return el("span"); return c; }
+  if(puedeHorno()) c.appendChild(el("button",{type:"button",class:"ptog"+(d.horno?" on":""),disabled:!!d.fijo,style:"margin-bottom:10px",
+    onclick:function(){ d.horno=!d.horno; trasCambio(); render(); }},[el("span",{class:"sw"},[el("i")]),
+    el("span",{class:"pt"},[el("b",null,["Queda en proceso (horno)"]),el("small",null,["Se termina después desde la pestaña Pendientes"])])]));
+  if(d.fijo){ if(d.conDetalle&&str(d.detalle)) c.appendChild(fieldWrap("Detalle",el("div",{class:"fixed",style:"font-size:14px;font-weight:600"},[str(d.detalle)]))); else if(!puedeHorno()) return el("span"); return c; }
   c.appendChild(el("button",{type:"button",class:"ptog"+(d.conDetalle?" on":""),onclick:function(){ d.conDetalle=!d.conDetalle; trasCambio(); render(); if(d.conDetalle){ var t=document.querySelector('[data-fk="detalle"]'); if(t) t.focus(); } }},[
     el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,["Agregar detalle"])])]));
   if(d.conDetalle){
     var t=el("textarea",{rows:"2",placeholder:"Ej: muestra tomada al pie del talud, material húmedo…","data-fk":"detalle",style:"margin-top:10px"});
     t.value=d.detalle;
-    t.addEventListener("input",function(e){ d.detalle=e.target.value; trasCambio(); render(); });
+    t.className="up";
+    t.addEventListener("input",function(e){
+      var pos=e.target.selectionStart, v=e.target.value.toUpperCase();
+      if(v!==e.target.value){ e.target.value=v; try{ e.target.setSelectionRange(pos,pos); }catch(x){} }
+      d.detalle=v; trasCambio(); render(); });
     c.appendChild(t);
   }
   return c;
@@ -1407,8 +1430,19 @@ function tarjetaPend(p){
   c.appendChild(ops);
   return c;
 }
+function cajaProceso(){
+  var L=enProcesoTodos(); if(!L.length) return null;
+  var c=el("div",{class:"card"},[el("div",{class:"sec-t"},["🔥 En proceso ("+L.length+")"]),el("div",{class:"sec-d"},["Ensayos que quedaron en el horno. Tócalos para terminarlos."])]);
+  L.forEach(function(r){
+    c.appendChild(el("button",{type:"button",class:"prow",onclick:function(){ terminarEnsayo(r); }},[
+      el("span",{class:"pr-a"},[el("b",null,[codCorto(r.k,r.n)+" · "+cap(cfg.tipos[r.k].corto)]),el("small",null,[resumenMuestra(r)+(r.d?" · desde "+fechaCorta(r.d):"")])]),
+      edadTag(r.d),el("span",{class:"go ok"},["✓ Terminar"])]));
+  });
+  return c;
+}
 function renderPend(app){
   cabecera(app);
+  var cp=cajaProceso(); if(cp) app.appendChild(cp);
   var P=pendientes(), cuenta={};
   P.forEach(function(p){ p.falta.forEach(function(k){ cuenta[k]=(cuenta[k]||0)+1; }); });
   var tipos=TIPO_KEYS.filter(function(k){ return cuenta[k]; });
@@ -1420,7 +1454,7 @@ function renderPend(app){
   tipos.forEach(function(k){ fl.appendChild(el("button",{type:"button",class:state.pf===k?"on":"",onclick:function(){ state.pf=k; render(); }},
     [cfg.tipos[k].abrev+" ",el("b",null,[String(cuenta[k])])])); });
   if(tipos.length) card.appendChild(fl);
-  if(!P.length){
+  if(!P.length && !enProcesoTodos().length){
     card.appendChild(el("div",{class:"empty"},[el("div",{class:"big"},["✓"]),el("div",null,["No hay ensayos pendientes."]),
       el("div",{class:"fdesc"},["Al registrar un reemplazo de agua, cono de arena o muestra, aquí aparecen los ensayos que faltan de ese correlativo."])]));
   } else if(state.pf){
@@ -1461,7 +1495,9 @@ function tarjetaLib(it,sub,pendiente){
   var turno=it.turno==="NOCHE"?"☾ Noche":it.turno==="DÍA"?"☀ Día":"";
   var kids=[el("div",{class:"tx"},[
     el("b",null,[[cod,tipo].filter(Boolean).join(" · ")||cap(lineaDe(t,"ACTIVIDAD"))||"Ensayo",pendiente?el("span",{class:"tag"},["POR SUBIR"]):null,
-      nEns?el("span",{class:"tag tok"},["N° "+nEns]):null]),
+      nEns?el("span",{class:"tag tok"},["N° "+nEns]):null,
+      (function(){ var f=formDe(it), r=f&&recDeForm(f); if(!r||!marcas(r).__PROC__) return null; var fin=finDe(r);
+        return el("span",{class:"tag"+(fin?" tok":"")},[fin?"TERMINADO "+fechaCorta(fin.d):"EN PROCESO"]); })()]),
     el("span",null,[[capa?"Capa "+capa:"",mat,proc].filter(Boolean).join(" · ")]),
     el("span",null,[[est,sub,turno].filter(Boolean).join(" · ")]),
     lineaDe(t,"REALIZADO POR")?el("span",null,["👤 "+lineaDe(t,"REALIZADO POR")]):null,
@@ -1513,8 +1549,8 @@ function titulo(s){
 }
 function recDeForm(f){ var hit=null; todosUsos().forEach(function(u){ if(u.t===f.t && u.k===f.tipo) hit=u; }); return hit; }
 /* lo que falta del árbol de pendientes de un generador hasta el momento t (incluye lo que deja el Proctor) */
-function faltanHasta(root,hastaT){
-  var regs=todosUsos(), out=[];
+function faltanHasta(root,hastaT,proc){
+  var regs=todosUsos(), out=[]; proc=proc||[];
   function expandir(k,pt){ if(!cfg.tipos[k]) return; out.push(cap(nombreSlot(pt,k))); cfg.tipos[k].asoc.forEach(function(x){ expandir(x,k); }); }
   function visitar(rec){
     var aj=ajustesLoc[rec.u]||{}, om={};
@@ -1522,7 +1558,7 @@ function faltanHasta(root,hastaT){
     uniq((rec.a||[]).concat(rec.x||[],aj.x||[])).forEach(function(k){
       if(om[k]) return;
       var h=regs.filter(function(r){ return r.p===rec.u && r.k===k && r.t<=hastaT; })[0];
-      if(h) visitar(h); else expandir(k,rec.k);
+      if(h){ if(enProceso(h)) proc.push(cap(nombreSlot(rec.k,k))); visitar(h); } else expandir(k,rec.k);
     });
   }
   visitar(root);
@@ -1532,17 +1568,17 @@ function raizDe(rec){ var regs=todosUsos(), r=rec, n=0;
   while(r && r.p && n<10){ var p=null; regs.forEach(function(x){ if(x.u===r.p) p=x; }); if(!p) break; r=p; n++; } return r; }
 function obsRD(f,texto){
   var t=cfg.tipos[f.tipo], rec=recDeForm(f), det=lineaDe(texto,"DETALLE"), base="";
-  var lista=function(a){ return "Falta: "+a.join(", ")+"."; };
+  var lista=function(a,pr){ return [a.length?"Falta: "+a.join(", ")+".":"",pr&&pr.length?"En proceso: "+pr.join(", ")+".":""].filter(Boolean).join(" "); };
   if(!rec){ base = f.padre ? "" : (t&&t.nEns?"Ensayo de campo":t&&t.muestra?"Muestreo":"Ensayo en laboratorio"); }
   else if(!rec.p){
     var pref = t&&t.nEns ? "Ensayo de campo" : t&&t.muestra ? "Muestreo" : "Ensayo en laboratorio";
-    var fa=faltanHasta(rec,rec.t);
-    base = fa.length ? pref+" - "+lista(fa) : pref;
+    var pr=[], fa=faltanHasta(rec,rec.t,pr);
+    base = fa.length||pr.length ? pref+" - "+lista(fa,pr) : pref;
   } else {
-    var fa2=faltanHasta(raizDe(rec),rec.t);
-    base = fa2.length ? lista(fa2) : "ENSAYO TERMINADO";
+    var pr2=[], fa2=faltanHasta(raizDe(rec),rec.t,pr2);
+    base = enProceso(rec) && !fa2.length && pr2.length<=1 ? "EN PROCESO" : (fa2.length||pr2.length ? lista(fa2,pr2) : "ENSAYO TERMINADO");
   }
-  return [base,det?cap(det):""].filter(Boolean).join(" / ");
+  return [base,det].filter(Boolean).join(" / ");
 }
 function filaRD(it){
   var f=formDe(it)||{}, fr=getFrente(f.frente), t=cfg.tipos[f.tipo];
@@ -1811,7 +1847,7 @@ function hojaPanel(wb,regs,fotos,x){
         celda(ws,c1+r+":"+c2+(r+FILAS_FOTO-1),"",{border:true});
         celda(ws,c1+(r+FILAS_FOTO)+":"+c2+(r+FILAS_FOTO+1),g?tituloFoto(g.f,g.it.texto):"------",{size:11,h:"left",fill:GRIS,border:true});
         var det=g?lineaDe(g.it.texto,"DETALLE"):"";
-        celda(ws,c1+(r+FILAS_FOTO+2)+":"+c2+(r+FILAS_FOTO+3),"Descripción: "+(det?cap(det):""),{size:11,h:"left",v:"top",fill:GRIS,border:true});
+        celda(ws,c1+(r+FILAS_FOTO+2)+":"+c2+(r+FILAS_FOTO+3),"Descripción: "+(det||""),{size:11,h:"left",v:"top",fill:GRIS,border:true});
         if(g) ponerFotoPanel(wb,ws,g,c1,c2,r,r+FILAS_FOTO-1,FOTO_PT);
       });
       r+=FILAS_FOTO+4; ws.getRow(r).height=8; r++; alto+=bloque;
@@ -2110,9 +2146,10 @@ function catalogoEnsayos(C){
       el("button",{class:"mini",type:"button",onclick:function(){ ed.ensAb=ab?null:t.id; render(); }},[ab?"Cerrar":"Editar"])]));
     if(ab){
       var body=el("div",{class:"cr-body"});
+      var fNorma=fieldWrap("Norma",cfgInput(t.norma,"ASTM …","ce_no_"+t.id,function(v){ t.norma=v; },{up:true}));
       if(!t.muestra||t.evalMat) body.appendChild(el("div",{class:"two"},[
-        fieldWrap("Código",cfgInput(t.abrev,"RA","ce_k_"+t.id,function(v){ t.abrev=v; },{abrev:true,max:6,rerender:true})),
-        fieldWrap("Norma",cfgInput(t.norma,"ASTM …","ce_no_"+t.id,function(v){ t.norma=v; },{up:true}))]));
+        fieldWrap("Código",cfgInput(t.abrev,"RA","ce_k_"+t.id,function(v){ t.abrev=v; },{abrev:true,max:6,rerender:true})),fNorma]));
+      else body.appendChild(fNorma);
       body.appendChild(fieldWrap("Nombre del botón",cfgInput(t.corto,"","ce_c_"+t.id,function(v){ t.corto=v; },{up:true})));
       body.appendChild(fieldWrap("Nombre en el reporte",cfgInput(t.largo,"","ce_l_"+t.id,function(v){ t.largo=v; },{up:true})));
       var otros=C.ensayos.filter(function(x){ return x.id!==t.id && !x.muestra; }).map(function(x){ return x.id; });
@@ -2121,6 +2158,7 @@ function catalogoEnsayos(C){
         t[campo]=!t[campo]; if(campo==="muestra"&&t.muestra){ t.nEns=false; } markDirty(); render(); }},[el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,[txt])])]); }
       if(C.tipos.PROCTOR && t.id!=="PROCTOR" && t.asoc.indexOf("PROCTOR")<0) body.appendChild(tog("proc","Muestra el botón “Aplica Proctor estándar”"));
       if(!t.muestra) body.appendChild(tog("nEns","Pide N° de ensayo por capa"));
+      if(!t.muestra) body.appendChild(tog("horno","Puede quedar en proceso (horno)"));
       body.appendChild(tog("muestra","Es muestreo (el correlativo no lleva código de ensayo; en el RD sale MUESTREO)"));
       body.appendChild(tog("evalMat","Es evaluación de material (el correlativo usa "+(C.codEM||"EM")+" en lugar del código del material)"));
       body.appendChild(el("div",{class:"btns"},[
@@ -2139,7 +2177,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v23";
+var VERSION_APP="v25";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
