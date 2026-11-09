@@ -615,12 +615,30 @@ function sigNEns(lista){ var m=0; lista.forEach(function(u){ if(u.e>m) m=u.e; })
 function registrarUso(u){ usos.push(u); if(usos.length>800) usos=usos.slice(-800); lsSet(STORE_USOS,JSON.stringify(usos)); }
 function quitarUso(t){ usos=usos.filter(function(u){ return u.t!==t; }); lsSet(STORE_USOS,JSON.stringify(usos)); }
 var ultimaCod=0, syncOk=0;
+/* la hoja es la fuente de verdad: un registro guardado en este celular que ya no está en el servidor
+   (lo eliminaron desde otro celular) se descarta. Se conservan los que esperan señal en la cola
+   y los creados mientras se consultaba el servidor. */
+function limpiarHuerfanos(t0){
+  var srv={}, enCola={};
+  usosSrv.forEach(function(u){ if(u.u) srv[u.u]=1; });
+  cola.forEach(function(it){ if(!it.accion && it.uid) enCola[it.uid]=1; });
+  var antes=usos.length;
+  usos=usos.filter(function(u){ return !u.u || srv[u.u] || enCola[u.u] || (Number(u.t)||0)>t0-120000; });
+  if(usos.length!==antes) lsSet(STORE_USOS,JSON.stringify(usos));
+  usos.forEach(function(u){ if(u.u) enCola[u.u]=1; });
+  var aj=false;
+  Object.keys(ajustesLoc).forEach(function(k){ if(!srv[k] && !enCola[k]){ delete ajustesLoc[k]; aj=true; } });
+  if(aj) lsSet(STORE_AJ,JSON.stringify(ajustesLoc));
+  return antes-usos.length;
+}
 function syncCodigos(forzar){
   if(!conectado() || (!forzar && Date.now()-ultimaCod<20000)) return Promise.resolve(false);
   ultimaCod=Date.now();
+  var t0=Date.now();
   return api("codigos").then(function(j){
     usosSrv=(j.items||[]).filter(function(a){ return a && a.k; });
     lsSet(STORE_USOS_SRV,JSON.stringify(usosSrv));
+    limpiarHuerfanos(t0);
     syncOk=Date.now();
     if((state.view==="main" && !(state.d&&state.d.fijo)) || state.view==="pend") render();
     return true;
@@ -2298,7 +2316,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v29";
+var VERSION_APP="v30";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
