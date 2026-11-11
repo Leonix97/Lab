@@ -418,7 +418,7 @@ function defaultEnsayos(){
     E("GRANULO",  "G", "ANÁLISIS GRANULOMÉTRICO POR TAMIZADO", "GRANULOMETRÍA",    "ASTM D6913"),
     E("HUMEDAD",  "CH","CONTENIDO DE HUMEDAD",                 "CONTENIDO DE HUMEDAD","ASTM D2216"),
     E("LIMITES",  "L", "LÍMITES DE ATTERBERG",                 "LÍMITES DE ATTERBERG","ASTM D4318"),
-    E("PROCTOR",  "PE","PROCTOR ESTÁNDAR",                     "PROCTOR ESTÁNDAR", "ASTM D698",{asoc:["GRAVEDAD","HUMEDAD"]}),
+    E("PROCTOR",  "PE","PROCTOR ESTÁNDAR",                     "PROCTOR ESTÁNDAR", "ASTM D698",{asoc:["HUMEDAD"]}),
     E("GRAVEDAD", "GE","GRAVEDAD ESPECÍFICA DE SÓLIDOS",       "GRAVEDAD ESPECÍFICA","ASTM D854"),
     E("EVALMAT",  "EM","EVALUACIÓN DE MATERIAL",               "EVALUACIÓN DE MATERIAL","",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,muestra:true,evalMat:true})
   ];
@@ -444,7 +444,7 @@ function defaultConfig(){
   function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
   var cd={
-    esquema:4, conEval:true, conHuso:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
+    esquema:4, conEval:true, conHuso:true, geConProctor:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -498,6 +498,9 @@ function sanitizeCfg(c){
   var sumarEval = !c.conEval && !o.ensayos.some(function(t){ return t.evalMat; });
   if(sumarEval){ var ev=findBy(defaultEnsayos(),"id","EVALMAT"); o.ensayos.push(ev); ids.push(ev.id); }
   o.conEval=true;
+  /* la gravedad específica ahora nace junto con el Proctor (al marcar “Aplica Proctor”), ya no del PE: se quita una vez del PE */
+  if(!c.geConProctor){ var pe=findBy(o.ensayos,"id","PROCTOR"); if(pe) pe.asoc=pe.asoc.filter(function(x){ return x!=="GRAVEDAD"; }); }
+  o.geConProctor=true;
   /* un ensayo con el mismo código que la evaluación de material (EM) pero sin serlo usaría el código del material:
      se elimina y sus usos pasan a la evaluación de material */
   var codEv=codigoLimpio(o.codEM||"EM"), evId=(o.ensayos.filter(function(t){ return t.evalMat; })[0]||{}).id, mapaEv={};
@@ -1035,7 +1038,7 @@ function evaluacionesDe(frente,estructura){
     .sort(function(a,b){ return (b.t||0)-(a.t||0); });
 }
 /* generadores posibles de un ensayo: los que lo dejan como pendiente (RA, CA, EM, muestra, Proctor…) */
-function generadoresDe(k){ return TIPO_KEYS.filter(function(g){ var t=cfg.tipos[g]; return g!==k && t && (t.asoc.indexOf(k)>=0 || (k==="PROCTOR" && t.proc)); }); }
+function generadoresDe(k){ return TIPO_KEYS.filter(function(g){ var t=cfg.tipos[g]; return g!==k && t && (t.asoc.indexOf(k)>=0 || ((k==="PROCTOR"||k==="GRAVEDAD") && t.proc)); }); }
 /* pendientes de ese ensayo cuyo generador es del tipo elegido, en el frente (y estructura) actual */
 function pendientesPara(k,genTipo){
   var d=state.d;
@@ -1069,6 +1072,8 @@ function asocBase(){
   var fr=getFrente(state.frente), disp=ensayosDisp(fr,state.d.material);
   return cfg.tipos[state.tipo].asoc.filter(function(k){ return disp.indexOf(k)>=0; });
 }
+/* la gravedad específica acompaña al Proctor si el material del frente la tiene */
+function geDisp(){ return !!cfg.tipos.GRAVEDAD && ensayosDisp(getFrente(state.frente),state.d.material).indexOf("GRAVEDAD")>=0; }
 function puedeProctor(){
   var fr=getFrente(state.frente);
   return !!(state.tipo && cfg.tipos[state.tipo].proc && cfg.tipos[state.tipo].asoc.indexOf("PROCTOR")<0 &&
@@ -1077,7 +1082,7 @@ function puedeProctor(){
 function asocElegidos(){
   var d=state.d;
   var a=asocBase().filter(function(k){ return d.asocOff.indexOf(k)<0; });
-  if(d.conProctor && puedeProctor()) a.push("PROCTOR");
+  if(d.conProctor && puedeProctor()){ a.push("PROCTOR"); if(geDisp() && a.indexOf("GRAVEDAD")<0) a.push("GRAVEDAD"); }
   return a;
 }
 function evaluar(){
@@ -1601,7 +1606,8 @@ function tarjetaPend(p){
   var ops=el("details",{class:"pops"},[el("summary",null,["Opciones"])]);
   var fila=el("div",{class:"slots",style:"margin-top:8px"});
   if(t.proc && p.slots.indexOf("PROCTOR")<0)
-    fila.appendChild(el("button",{type:"button",class:"mini",onclick:function(){ ajustarPadre(r.u,["PROCTOR"],{}); }},["＋ Agregar Proctor (PE)"]));
+    fila.appendChild(el("button",{type:"button",class:"mini",onclick:function(){
+      ajustarPadre(r.u,cfg.tipos.GRAVEDAD&&p.slots.indexOf("GRAVEDAD")<0?["PROCTOR","GRAVEDAD"]:["PROCTOR"],{}); }},["＋ Agregar Proctor (PE + GE)"]));
   p.falta.forEach(function(k){ fila.appendChild(el("button",{type:"button",class:"mini dng",onclick:function(){ omitirPend(p,k); }},["✕ No se hará "+cfg.tipos[k].abrev])); });
   ops.appendChild(fila);
   c.appendChild(ops);
@@ -2394,7 +2400,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v34";
+var VERSION_APP="v35";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
