@@ -60,6 +60,32 @@
       line-height:1.7;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;color:#1e293b;margin:0;
       -webkit-user-select:text;user-select:text}
   .btns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .btns a{padding:12px 14px;border-radius:9px;font-weight:700;font-size:14px;flex:1;text-align:center;text-decoration:none;font-family:inherit}
+  .nrm{display:block;width:100%;text-align:left;background:#fff;border:0;border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.07);font:inherit;color:inherit;cursor:pointer}
+  .nrm .nt{display:block;font-size:15px;font-weight:700;color:#111827;margin:3px 0 4px;line-height:1.3}
+  .nrm .nq{display:block;font-size:12.5px;color:#6b7280}
+  .nc{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--ac2);background:#f0fdfa;border-radius:6px;padding:2px 7px}
+  .np{font-size:14.5px;line-height:1.55;color:#374151;margin:10px 0 0}
+  .nd summary{font-size:15px;font-weight:800;color:var(--ac2);cursor:pointer;list-style:none}
+  .nd summary::-webkit-details-marker{display:none}
+  .nd summary::after{content:"▾";float:right;color:#9ca3af}
+  .nd[open] summary{margin-bottom:8px}
+  .nl{margin:0;padding-left:20px;font-size:14.5px;line-height:1.55;color:#374151}
+  .nl li{margin-bottom:7px}
+  .nf{border-top:1px solid #eef0f3;padding:8px 0}
+  .nf:first-child{border-top:0}
+  .nf small{display:block;font-size:12px;color:#6b7280;margin-bottom:3px}
+  .nf code{display:block;font-family:ui-monospace,monospace;font-size:13.5px;color:#0f172a;background:#f8fafc;border-radius:7px;padding:7px 9px;white-space:pre-wrap}
+  .back{background:none;border:0;color:var(--ac2);font:inherit;font-weight:700;font-size:14px;padding:4px 2px 12px;cursor:pointer}
+  .qbar{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#6b7280;font-weight:700;margin-bottom:10px}
+  .qq{font-size:17px;font-weight:700;line-height:1.4;color:#111827;margin-bottom:14px}
+  .qo{display:block;width:100%;text-align:left;font:inherit;font-size:15px;padding:13px 14px;margin-bottom:8px;border-radius:10px;border:1.5px solid #e5e7eb;background:#fff;color:#111827;cursor:pointer}
+  .qo.bien{border-color:#10b981;background:#ecfdf5;color:#065f46;font-weight:700}
+  .qo.mal{border-color:#ef4444;background:#fef2f2;color:#991b1b}
+  .qo.off{opacity:.55}
+  .qe{border-radius:10px;padding:11px 12px;font-size:14px;line-height:1.5;margin-top:4px}
+  .qe.bien{background:#ecfdf5;color:#065f46} .qe.mal{background:#fef2f2;color:#7f1d1d}
+  .qres{font-size:40px;font-weight:800;color:var(--ac2);margin:10px 0 4px}
   .btns button,.savebar button{padding:12px 14px;border-radius:9px;border:none;font-weight:700;font-size:14px;cursor:pointer;flex:1;font-family:inherit}
   .b-pri{background:var(--ac);color:#fff}
   .b-ok{background:#16a34a;color:#fff}
@@ -946,6 +972,7 @@ function cabecera(app){
     el("div",{class:"hgrp"},[
       pedirInstalar&&!instalada()?el("button",{class:"hbtn",type:"button",onclick:instalar,"aria-label":"Instalar app"},["📲 Instalar"]):null,
       el("button",{class:"hbtn"+(state.view==="calc"?" on":""),type:"button",onclick:function(){ state.view="calc"; render(); window.scrollTo(0,0); },"aria-label":"Calcular"},["🧮 Calcular"]),
+      el("button",{class:"hbtn"+(state.view==="normas"?" on":""),type:"button",onclick:abrirNormas,"aria-label":"Normas"},["📚"]),
       el("button",{class:"hbtn",type:"button",onclick:abrirConfig,"aria-label":"Ajustes"},["⚙"])])]));
   var np=nPendientes();
   function tab(v,ico,txt,badge,fn){
@@ -2367,7 +2394,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v33";
+var VERSION_APP="v34";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
@@ -3399,6 +3426,175 @@ function vista(app){
 function cfg_global(){ return window.cfg||{tipos:{}}; }
 return {vista:vista,elegir:elegir,tiene:function(k){ return !!TESTS[k]; },estado:S};
 })();
+/* ════════════════════════════════════════════════════════════════
+   NORMAS: fichas de estudio (resúmenes propios, no el texto de ASTM) y repaso
+   ════════════════════════════════════════════════════════════════ */
+var NORMAS=[
+ {id:"D5030",tipo:"REEMPLAZO",titulo:"Densidad en campo por reemplazo de agua (hoyo de prueba)",
+  para:"Mide la densidad del suelo o roca en el lugar cuando las partículas son grandes (gravas gruesas, bolones) y el cono de arena no alcanza a dar un hoyo representativo. Es el ensayo de control de compactación de los rellenos con material grueso.",
+  equipo:["Anillo o plantilla metálica rígida, nivelada y fija al terreno","Plástico (liner) delgado y flexible que copie el hoyo","Agua y un medidor de volumen: caudalímetro o recipientes calibrados","Balanza de campo para todo el material extraído","Herramientas de excavación y bolsas o baldes con tapa","Termómetro (la densidad del agua cambia con la temperatura)"],
+  pasos:["Nivelar la superficie, retirar el material suelto y fijar el anillo para que no se mueva durante todo el ensayo.","Calibración: con el plástico sobre el anillo, llenar con agua hasta el borde y registrar el volumen (lectura final − inicial del caudalímetro).","Retirar el agua y el plástico sin mover el anillo.","Excavar el hoyo dentro del anillo, con paredes lo más regulares posible y sin cavidades bajo el borde.","Guardar TODO el material extraído en recipientes cerrados (que no pierda humedad) y pesarlo.","Colocar el plástico en el hoyo, llenar con agua hasta el mismo nivel de la calibración y registrar el volumen de hoyo + anillo.","Tomar una muestra representativa del material extraído para el contenido de humedad (ASTM D2216).","Calcular el volumen del hoyo, la densidad húmeda, la densidad seca y el % de compactación contra el Proctor o test fill."],
+  formulas:[["Volumen del hoyo","V hoyo = V (hoyo + anillo) − V calibración"],["Densidad húmeda","ρh = masa húmeda extraída ÷ V hoyo  (kg/L = g/cm³)"],["Densidad seca","ρd = ρh ÷ (1 + w/100)"],["Compactación","%C = ρd ÷ DMS × 100"]],
+  criterios:["El tamaño del hoyo depende del tamaño máximo de partícula: mientras más grueso el material, más volumen debe tener el hoyo (la norma trae una tabla de volúmenes mínimos).","El plástico debe ajustarse a las paredes sin quedar tenso ni hacer puentes sobre huecos: un puente reduce el volumen medido y sube la densidad.","El anillo no se mueve entre la calibración y la medición final; si se movió, el ensayo se repite.","El nivel del agua en la medición final debe ser el mismo de la calibración."],
+  errores:["Perder material o humedad del material extraído (recipientes abiertos, sol).","Plástico perforado por piedras: el agua se filtra y el volumen sale mayor.","Lectura del caudalímetro mal anotada (inicial y final invertidas).","Usar una humedad que no corresponde al material del hoyo."],
+  quiz:[
+   {q:"¿Cuándo se prefiere el reemplazo de agua sobre el cono de arena?",o:["Cuando el material es fino y uniforme","Cuando hay partículas grandes y el hoyo debe ser de gran volumen","Cuando no hay balanza en campo","Solo en arcillas saturadas"],c:1,e:"Con partículas grandes el hoyo debe ser grande para ser representativo, y el cono de arena no da ese volumen."},
+   {q:"El volumen del hoyo se obtiene como…",o:["El agua de la calibración","El agua de hoyo + anillo menos la de calibración","El agua de hoyo + anillo más la de calibración","La masa extraída entre la densidad del agua"],c:1,e:"La calibración mide solo el volumen dentro del anillo; al restarla queda el volumen excavado."},
+   {q:"Si el plástico hace un “puente” sobre un hueco de la pared, la densidad calculada…",o:["Sale mayor que la real","Sale menor que la real","No cambia","Sale negativa"],c:0,e:"El agua no llena el hueco, el volumen medido es menor y la densidad (masa ÷ volumen) sube."},
+   {q:"¿Qué pasa si el anillo se mueve después de la calibración?",o:["Se corrige restando 1 L","Se repite el ensayo","Se ignora","Se mide otra vez solo el hoyo"],c:1,e:"La calibración deja de corresponder al anillo y el volumen del hoyo ya no es confiable."},
+   {q:"Con ρh = 2.10 g/cm³ y w = 5 %, la densidad seca es aproximadamente…",o:["2.21 g/cm³","2.00 g/cm³","1.95 g/cm³","2.05 g/cm³"],c:1,e:"ρd = 2.10 ÷ 1.05 = 2.00 g/cm³."}]},
+ {id:"D1556",tipo:"CONO",titulo:"Densidad en campo por el método del cono de arena",
+  para:"Mide la densidad del suelo compactado en el lugar llenando el hoyo excavado con una arena de densidad conocida. Se usa en suelos y gravas finas a medianas.",
+  equipo:["Aparato de cono de arena (frasco + válvula + cono) y placa base","Arena de calibración limpia, seca, uniforme y de densidad conocida","Balanza","Herramientas para excavar y recipientes herméticos","Equipo para humedad (ASTM D2216)"],
+  pasos:["Calibrar en laboratorio: la masa de arena que llena el cono y la densidad aparente de la arena.","Nivelar la superficie y asentar la placa base.","Excavar el hoyo por la abertura de la placa y guardar todo el material en un recipiente hermético.","Pesar el frasco con arena, colocarlo invertido sobre la placa y abrir la válvula hasta que la arena deje de fluir.","Cerrar la válvula y pesar el frasco con la arena que quedó.","Pesar el material húmedo extraído y determinar su humedad."],
+  formulas:[["Arena en el hoyo","M arena hoyo = (inicial − final) − M arena del cono"],["Volumen del hoyo","V = M arena hoyo ÷ ρ arena"],["Densidad húmeda","ρh = masa húmeda extraída ÷ V"],["Densidad seca","ρd = ρh ÷ (1 + w/100)"]],
+  criterios:["El volumen mínimo del hoyo aumenta con el tamaño máximo de partícula (la norma trae la tabla).","La arena debe recalibrarse si cambia el lote o su humedad.","Evitar vibraciones cerca (equipos pesados): compactan la arena y alteran el volumen.","No es adecuado para suelos que se deforman o colapsan al excavar, ni con agua que aflore al hoyo."],
+  errores:["Mover el aparato o golpearlo durante el llenado.","Usar la masa de arena del cono de otro aparato.","Hoyo con paredes irregulares o material suelto en el fondo.","Arena húmeda o contaminada."],
+  quiz:[
+   {q:"¿Para qué se calibra la masa de arena del cono?",o:["Para corregir la humedad","Para restar la arena que llena el cono y la placa, que no está en el hoyo","Para obtener la densidad del suelo","Para saber el tamaño del hoyo"],c:1,e:"Parte de la arena que sale del frasco queda en el cono; hay que restarla para quedarse solo con la del hoyo."},
+   {q:"Una vibración cerca del ensayo hace que la densidad del suelo calculada…",o:["Salga mayor","Salga menor","No cambie","Se anule"],c:1,e:"La arena se densifica, entra más masa al hoyo, el volumen calculado aumenta y la densidad del suelo baja."},
+   {q:"El volumen del hoyo se calcula con…",o:["La masa de suelo y su humedad","La masa de arena en el hoyo y la densidad de la arena","El diámetro de la placa","La densidad máxima del Proctor"],c:1,e:"V = masa de arena en el hoyo ÷ densidad aparente de la arena calibrada."},
+   {q:"¿Qué ensayo de humedad acompaña al cono de arena?",o:["ASTM D2216","ASTM D4318","ASTM D854","ASTM D6913"],c:0,e:"La humedad del material del hoyo se determina por secado en horno, ASTM D2216."}]},
+ {id:"D2216",tipo:"HUMEDAD",titulo:"Contenido de humedad por secado en horno",
+  para:"Determina la relación entre la masa de agua y la masa de suelo seco. Es el ensayo base de casi todos los demás: densidades, Proctor, límites y granulometría.",
+  equipo:["Horno con temperatura controlada","Balanza con la precisión que pide el tamaño de la muestra","Recipientes (taras) resistentes a la corrosión, limpios e identificados","Desecador (opcional, para enfriar sin absorber humedad)"],
+  pasos:["Pesar la tara limpia y seca.","Colocar la muestra húmeda en la tara y pesar.","Secar en horno a 110 ± 5 °C hasta masa constante (en la práctica, toda la noche: unas 12 a 16 h).","Enfriar la muestra y pesar la tara con el suelo seco.","Calcular el contenido de humedad."],
+  formulas:[["Masa de agua","Mw = (tara + húmedo) − (tara + seco)"],["Masa seca","Ms = (tara + seco) − tara"],["Humedad","w = Mw ÷ Ms × 100  (%)"]],
+  criterios:["Temperatura del horno: 110 ± 5 °C. Para suelos con yeso u orgánicos se usa una temperatura menor (alrededor de 60 °C) y se informa.","La masa mínima de la muestra depende del tamaño máximo de partícula: más grueso el material, más masa (la norma trae la tabla).","Masa constante: dos pesadas sucesivas que no cambian más de lo que permite la norma.","La humedad se calcula sobre la masa SECA, no sobre la húmeda."],
+  errores:["Muestra muy pequeña para el tamaño de partícula (resultado poco representativo).","Pesar la muestra caliente: corrientes de aire alteran la balanza.","Dejar la muestra húmeda expuesta antes de pesarla (pierde agua).","Confundir taras."],
+  quiz:[
+   {q:"La temperatura normal de secado es…",o:["60 ± 5 °C","105 ± 2 °C","110 ± 5 °C","150 °C"],c:2,e:"ASTM D2216 seca a 110 ± 5 °C; menos temperatura solo para suelos especiales (yeso, orgánicos)."},
+   {q:"Húmedo + tara = 948.9 g, seco + tara = 896.2 g, tara = 375.0 g. ¿w?",o:["5.6 %","10.1 %","9.2 %","11.4 %"],c:1,e:"Mw = 52.7 g; Ms = 521.2 g; w = 52.7 ÷ 521.2 × 100 = 10.1 %."},
+   {q:"La humedad se expresa respecto a…",o:["La masa húmeda","La masa seca","La masa de agua","El volumen"],c:1,e:"w = masa de agua ÷ masa de suelo seco × 100."},
+   {q:"Si el material tiene partículas más grandes, la muestra para humedad debe ser…",o:["Más pequeña","Igual","Más grande","No importa"],c:2,e:"La masa mínima crece con el tamaño máximo para que la muestra sea representativa."}]},
+ {id:"D6913",tipo:"GRANULO",titulo:"Granulometría por tamizado",
+  para:"Determina la distribución de tamaños de partículas mayores a 75 µm (tamiz N°200). Con ella se clasifica el suelo (SUCS) y se verifica que el material cumpla el huso de la especificación.",
+  equipo:["Juego de tamices (de 3\" o mayores hasta N°200) con fondo y tapa","Tamizador mecánico (opcional)","Balanza","Horno","Recipientes para lavado y cepillos"],
+  pasos:["Secar o tomar humedad de la muestra y registrar su masa.","Si hay partículas grandes, separar por un tamiz separador (en el formato, N°4): fracción gruesa y fracción fina (tamizado compuesto).","Tamizar la fracción gruesa y pesar lo retenido en cada tamiz.","De la fracción fina tomar una submuestra, secarla (es la misma de la humedad) y lavarla sobre la N°200.","Secar lo lavado, tamizarlo y pesar lo retenido en cada tamiz y en el fondo.","Calcular el % retenido y el % que pasa; dibujar la curva y compararla con el huso."],
+  formulas:[["% retenido","% ret = masa retenida ÷ masa seca total × 100"],["% que pasa","% pasa = 100 − % retenido acumulado"],["Fino (compuesto)","% ret fino = (% pasa N°4 ÷ masa submuestra seca) × masa retenida"],["Coeficientes","Cu = D60 ÷ D10 ;  Cc = D30² ÷ (D10 × D60)"]],
+  criterios:["Método A informa al 1 % y método B al 0.1 % (el B exige más masa y precisión).","Criterios del formato del laboratorio: pérdida en el lavado y en el tamizado menores a 0.5 %.","No sobrecargar los tamices: si hay demasiado material retenido, tamizar por partes.","La masa mínima de la muestra crece con el tamaño máximo de partícula."],
+  errores:["Sobrecargar los tamices (las partículas no pasan y el % que pasa sale bajo).","No lavar la muestra: los finos quedan pegados a la grava y los finos salen menores.","Perder material al pasar de un tamiz a otro.","Usar la masa húmeda como si fuera seca."],
+  quiz:[
+   {q:"¿Hasta qué tamiz llega la granulometría por tamizado?",o:["N°40","N°100","N°200 (75 µm)","N°4"],c:2,e:"Las partículas menores a 75 µm (limos y arcillas) se informan como lo que pasa la N°200."},
+   {q:"¿Para qué se lava la muestra sobre la N°200?",o:["Para pesarla más rápido","Para quitar los finos adheridos a las partículas gruesas","Para secarla","Para clasificarla por color"],c:1,e:"Sin lavado los finos quedan pegados y se subestima el % que pasa la N°200."},
+   {q:"Un suelo es bien graduado (grava, GW) si…",o:["Cu ≥ 4 y 1 ≤ Cc ≤ 3","Cu ≤ 4 y Cc ≥ 3","Cu ≥ 6 y Cc = 0","Pasa el huso"],c:0,e:"Para gravas: Cu ≥ 4 y Cc entre 1 y 3. Para arenas: Cu ≥ 6 y Cc entre 1 y 3."},
+   {q:"Sobrecargar un tamiz hace que el % que pasa salga…",o:["Mayor que el real","Menor que el real","Igual","Negativo"],c:1,e:"Las partículas no alcanzan a pasar y quedan retenidas de más."},
+   {q:"El D60 es…",o:["El tamaño por el que pasa el 60 % del material","El 60 % de la masa total","El tamiz N°60","La densidad al 60 %"],c:0,e:"D10, D30 y D60 son los tamaños por los que pasa el 10, 30 y 60 % en la curva."}]},
+ {id:"D4318",tipo:"LIMITES",titulo:"Límites de Atterberg (líquido, plástico e índice de plasticidad)",
+  para:"Describe cómo se comporta la parte fina del suelo (lo que pasa la N°40) con el agua. Con el LL y el IP se clasifican los finos en la carta de plasticidad.",
+  equipo:["Copa de Casagrande calibrada y ranurador","Placa de vidrio para el límite plástico","Tamiz N°40","Taras, balanza y horno","Espátulas y agua destilada"],
+  pasos:["Preparar el material que pasa la N°40 (preferible por vía húmeda) y mezclarlo con agua hasta una pasta uniforme.","Límite líquido (multipunto): colocar la pasta en la copa, ranurar y contar los golpes hasta que la ranura se cierre unos 13 mm.","Tomar humedad de cada punto; repetir con distintas humedades para obtener al menos 3 puntos.","Graficar humedad vs. golpes (escala log) y leer la humedad a 25 golpes: ese es el LL.","Límite plástico: rodar hilos sobre el vidrio hasta 3.2 mm de diámetro; cuando se agrietan a ese diámetro, tomar su humedad.","Calcular el índice de plasticidad."],
+  formulas:[["Índice de plasticidad","IP = LL − LP"],["LL de un punto (método B)","LL = w × (N ÷ 25)^0.121"],["Línea A","IP = 0.73 × (LL − 20)"]],
+  criterios:["Multipunto: los puntos deben cubrir más o menos de 15 a 35 golpes.","Un punto: solo es válido entre 20 y 30 golpes.","Hilos del límite plástico: 3.2 mm (1/8\").","Si no se puede obtener el LP o el LP ≥ LL, el suelo se informa como no plástico (NP)."],
+  errores:["Copa sin calibrar (altura de caída distinta de 10 mm).","Secar el material al horno antes de ensayarlo cuando la norma pide preparación húmeda (cambia los límites en algunos suelos).","Contar golpes con la ranura cerrada por deslizamiento y no por flujo.","Tomar la humedad tarde (la muestra se seca)."],
+  quiz:[
+   {q:"¿Con qué material se hacen los límites?",o:["El que pasa la N°4","El que pasa la N°40","El que pasa la N°200","Todo el material"],c:1,e:"Se ensaya la fracción que pasa la N°40 (425 µm)."},
+   {q:"El LL es la humedad correspondiente a…",o:["10 golpes","25 golpes","35 golpes","50 golpes"],c:1,e:"Se lee en la curva de flujo a 25 golpes."},
+   {q:"LL = 31 y LP = 21. ¿IP?",o:["52","10","21","1.5"],c:1,e:"IP = LL − LP = 31 − 21 = 10."},
+   {q:"¿Diámetro de los hilos en el límite plástico?",o:["1 mm","3.2 mm","6 mm","10 mm"],c:1,e:"Los hilos se ruedan hasta 3.2 mm (1/8\"); si se agrietan a ese diámetro, se toma la humedad."},
+   {q:"Un fino con LL = 40 e IP = 18 cae…",o:["Debajo de la línea A (limo)","Sobre la línea A (arcilla, CL)","En la zona CL-ML","Es NP"],c:1,e:"Línea A a LL 40: 0.73 × 20 = 14.6; IP 18 > 14.6 y LL < 50 → CL."}]},
+ {id:"D698",tipo:"PROCTOR",titulo:"Proctor estándar (compactación con energía estándar)",
+  para:"Obtiene la densidad seca máxima (DMS) y el contenido óptimo de humedad (COPH) de un suelo compactado con energía estándar. Es la referencia para calcular el % de compactación en campo.",
+  equipo:["Moldes de 4\" (101.6 mm) y 6\" (152.4 mm)","Pisón de 24.4 N (5.5 lbf) con caída de 305 mm (12\")","Tamices N°4, 3/8\" y 3/4\"","Balanza, horno y taras","Regla para enrasar"],
+  pasos:["Elegir el método según el material retenido (A, B o C).","Preparar al menos 4 porciones (mejor 5) con humedades distintas, alrededor del óptimo.","Compactar cada porción en 3 capas con el número de golpes del método.","Enrasar, pesar el molde con suelo y tomar humedad de cada punto.","Calcular la densidad seca de cada punto y dibujar la curva densidad seca vs. humedad.","Leer la DMS (punto más alto) y el COPH (humedad de ese punto)."],
+  formulas:[["Densidad húmeda","ρh = (molde + suelo − molde) ÷ volumen del molde"],["Densidad seca","ρd = ρh ÷ (1 + w/100)"],["Saturación 100 %","ρd sat = Gs × ρw ÷ (1 + w·Gs/100)"]],
+  criterios:["Método A: molde 4\", material que pasa N°4, 25 golpes por capa.","Método B: molde 4\", material que pasa 3/8\", 25 golpes por capa.","Método C: molde 6\", material que pasa 3/4\", 56 golpes por capa.","3 capas iguales; energía estándar ≈ 600 kN·m/m³ (12 400 lbf·ft/ft³).","Lo ideal: 2 puntos del lado seco y 2 del lado húmedo del óptimo, con saltos de humedad de alrededor de 2 %.","Si hay sobretamaño importante, se corrige con ASTM D4718."],
+  errores:["Reusar el mismo suelo varias veces (se rompen las partículas).","Capas de distinto espesor o última capa muy por encima del molde.","Pocos puntos o todos del mismo lado del óptimo.","Curva que cruza la línea de saturación (algo está mal medido)."],
+  quiz:[
+   {q:"¿Cuántas capas y golpes por capa en el método A?",o:["3 capas, 25 golpes","5 capas, 25 golpes","3 capas, 56 golpes","5 capas, 56 golpes"],c:0,e:"Proctor estándar: 3 capas; 25 golpes en el molde de 4\" (A y B) y 56 en el de 6\" (C)."},
+   {q:"El método C usa…",o:["Molde 4\" y material que pasa N°4","Molde 6\" y material que pasa 3/4\"","Molde 4\" y material que pasa 3/8\"","Molde 6\" y todo el material"],c:1,e:"Método C: molde de 6\" con material que pasa 3/4\" y 56 golpes por capa."},
+   {q:"El pisón del Proctor estándar pesa y cae…",o:["44.5 N desde 457 mm","24.4 N desde 305 mm","10 N desde 100 mm","24.4 N desde 457 mm"],c:1,e:"Estándar: 24.4 N (5.5 lbf) desde 305 mm. El modificado (D1557) usa 44.5 N desde 457 mm."},
+   {q:"La curva de compactación nunca debería…",o:["Tener 5 puntos","Cruzar la curva de saturación al 100 %","Tener un máximo","Usar escala lineal"],c:1,e:"Ningún punto puede tener más del 100 % de saturación; si cruza, hay un error de medición o de Gs."},
+   {q:"ρh = 2.10 g/cm³ con w = 10 %. ¿ρd?",o:["1.91 g/cm³","2.31 g/cm³","1.89 g/cm³","2.00 g/cm³"],c:0,e:"ρd = 2.10 ÷ 1.10 = 1.91 g/cm³."}]},
+ {id:"D854",tipo:"",titulo:"Gravedad específica de los sólidos (picnómetro)",
+  para:"Determina la gravedad específica (Gs) de las partículas del suelo que pasan la N°4. Se usa para la curva de saturación del Proctor, la relación de vacíos y el hidrómetro.",
+  equipo:["Picnómetro (frasco volumétrico) calibrado","Bomba de vacío o fuente de calor para extraer el aire","Termómetro","Balanza y horno","Agua desaireada"],
+  pasos:["Calibrar el picnómetro: masa del picnómetro con agua a distintas temperaturas.","Colocar la muestra (seca al horno o húmeda, según el método) en el picnómetro con agua.","Extraer el aire atrapado con vacío y/o calor, agitando suavemente.","Completar con agua hasta la marca, medir la temperatura y pesar.","Secar el suelo y obtener su masa seca si se ensayó húmedo.","Calcular Gs y corregirlo a 20 °C."],
+  formulas:[["Gs a la temperatura del ensayo","Gs,t = Ms ÷ (M picnómetro+agua − (M picnómetro+agua+suelo − Ms))"],["Corrección a 20 °C","Gs,20 = K × Gs,t  (K según la temperatura)"]],
+  criterios:["Aplica a partículas que pasan la N°4; para la fracción gruesa se usa ASTM C127.","El aire atrapado es la principal fuente de error: extraerlo bien.","La temperatura del agua debe medirse en el momento de la pesada.","Para la mayoría de suelos minerales Gs está entre 2.6 y 2.8."],
+  errores:["No extraer todo el aire (Gs sale bajo).","Agua fuera de la marca o burbujas en el cuello.","Usar la calibración de otro picnómetro o de otra temperatura."],
+  quiz:[
+   {q:"¿Qué fracción se ensaya con el picnómetro (D854)?",o:["Retenido N°4","Pasa N°4","Pasa N°200","Todo el material"],c:1,e:"D854 es para lo que pasa la N°4; la fracción gruesa se ensaya con ASTM C127."},
+   {q:"Si queda aire atrapado, el Gs calculado…",o:["Sube","Baja","No cambia","Se duplica"],c:1,e:"El aire ocupa volumen como si fuera sólido de menor peso, y el Gs sale menor."},
+   {q:"Un valor típico de Gs para suelos minerales es…",o:["1.0 – 1.5","2.6 – 2.8","3.5 – 4.0","5.0"],c:1,e:"La mayoría de suelos minerales están entre 2.6 y 2.8."}]},
+ {id:"D2487",tipo:"",titulo:"Clasificación de suelos SUCS",
+  para:"Clasifica el suelo con su granulometría y sus límites de Atterberg en grupos con símbolo (GW, GC, SM, CL…) y nombre. Es la clasificación que va en los informes de laboratorio.",
+  equipo:["Resultados de granulometría (D6913)","Resultados de límites de Atterberg (D4318)"],
+  pasos:["Si más del 50 % queda retenido en la N°200, es suelo grueso; si no, es fino.","Grueso: si la mayor parte de la fracción gruesa queda en la N°4 es grava (G); si pasa, es arena (S).","Según los finos: menos de 5 % → W o P (con Cu y Cc); más de 12 % → M o C (con la carta de plasticidad); de 5 a 12 % → símbolo doble (GW-GM, SP-SC…).","Fino: con LL e IP en la carta de plasticidad → CL, ML, CH, MH o CL-ML.","Agregar al nombre “con arena” o “con grava” si esa fracción es 15 % o más."],
+  formulas:[["Línea A","IP = 0.73 × (LL − 20)"],["Graduación","Cu = D60 ÷ D10 ;  Cc = D30² ÷ (D10 × D60)"]],
+  criterios:["Grava bien graduada: Cu ≥ 4 y 1 ≤ Cc ≤ 3. Arena bien graduada: Cu ≥ 6 y 1 ≤ Cc ≤ 3.","Finos: arcilla (C) sobre la línea A e IP > 7; limo (M) bajo la línea A o IP < 4; entre 4 y 7 sobre la línea A, CL-ML.","LL < 50: baja plasticidad (L); LL ≥ 50: alta plasticidad (H).","El formato del laboratorio clasifica con los porcentajes sin bolones (lo que pasa 3\")."],
+  errores:["Clasificar sin límites cuando hay más de 5 % de finos.","Usar los porcentajes con bolones en lugar de los referidos a lo que pasa 3\".","Olvidar el “con arena / con grava” en el nombre."],
+  quiz:[
+   {q:"Un suelo con 15 % de finos, 42 % de grava y 43 % de arena (sin bolones) es…",o:["Grava","Arena","Fino","Bolón"],c:1,e:"Es grueso (85 % retenido en N°200) y la arena (43 %) supera a la grava (42 %): arena (S)."},
+   {q:"Con 3 % de finos y Cu = 5, Cc = 2, una grava es…",o:["GW","GP","GM","GC"],c:0,e:"Menos de 5 % de finos; Cu ≥ 4 y Cc entre 1 y 3 → GW."},
+   {q:"¿Cuándo lleva símbolo doble (ej. GP-GM)?",o:["Finos < 5 %","Finos entre 5 y 12 %","Finos > 12 %","Siempre"],c:1,e:"Entre 5 y 12 % de finos se combina la graduación (W/P) con el tipo de fino (M/C)."},
+   {q:"Grava con 18 % de finos que caen sobre la línea A con IP = 10…",o:["GM","GC","GW-GC","CL"],c:1,e:"Más de 12 % de finos de tipo arcilla (sobre la línea A, IP > 7) → GC."}]}
+];
+var NORM={sel:null,quiz:null};
+function urlNorma(id){ return "https://store.astm.org/standards/"+id.toLowerCase(); }
+function abrirNormas(){ NORM.sel=null; NORM.quiz=null; state.view="normas"; render(); window.scrollTo(0,0); }
+function mezclar(a){ a=a.slice(); for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function iniciarRepaso(lista,titulo){
+  var qs=[]; lista.forEach(function(nm){ nm.quiz.forEach(function(q){ qs.push({q:q,id:nm.id}); }); });
+  qs=mezclar(qs).slice(0,10).map(function(x){ var ord=mezclar(x.q.o.map(function(o,i){ return i; }));
+    return {id:x.id,q:x.q.q,o:ord.map(function(i){ return x.q.o[i]; }),c:ord.indexOf(x.q.c),e:x.q.e,r:null}; });
+  NORM.quiz={titulo:titulo,qs:qs,i:0}; render(); window.scrollTo(0,0);
+}
+function vistaNormas(app){
+  if(NORM.quiz) return vistaRepaso(app);
+  var nm=NORM.sel?findBy(NORMAS,"id",NORM.sel):null;
+  if(nm) return vistaFicha(app,nm);
+  var c=el("div",{class:"card"},[el("div",{class:"sec-t"},["📚 Normas ASTM"]),
+    el("div",{class:"fdesc"},["Fichas de estudio con los puntos clave de cada norma, escritas como guía de repaso. No reemplazan a la norma oficial: para el texto completo usa el botón «Norma oficial»."])]);
+  c.appendChild(el("div",{class:"btns"},[el("button",{class:"b-pri",type:"button",onclick:function(){ iniciarRepaso(NORMAS,"Repaso general"); }},["✍ Repaso general (10 preguntas)"])]));
+  app.appendChild(c);
+  NORMAS.forEach(function(n){
+    app.appendChild(el("button",{class:"nrm",type:"button",onclick:function(){ NORM.sel=n.id; render(); window.scrollTo(0,0); }},[
+      el("span",{class:"nc"},["ASTM "+n.id]),el("span",{class:"nt"},[n.titulo]),el("span",{class:"nq"},[n.quiz.length+" preguntas ›"])]));
+  });
+}
+function lista(items,ord){ return el(ord?"ol":"ul",{class:"nl"},items.map(function(t){ return el("li",null,[t]); })); }
+function vistaFicha(app,n){
+  app.appendChild(el("button",{class:"back",type:"button",onclick:function(){ NORM.sel=null; render(); window.scrollTo(0,0); }},["‹ Todas las normas"]));
+  var c=el("div",{class:"card"},[el("div",{class:"nc"},["ASTM "+n.id]),el("div",{class:"sec-t",style:"margin-top:2px"},[n.titulo]),el("p",{class:"np"},[n.para])]);
+  var b=el("div",{class:"btns"},[
+    el("button",{class:"b-pri",type:"button",onclick:function(){ iniciarRepaso([n],"ASTM "+n.id); }},["✍ Repasar"]),
+    el("a",{class:"b-sec",href:urlNorma(n.id),target:"_blank",rel:"noopener"},["🌐 Norma oficial"])]);
+  if(n.tipo && CALC.tiene(n.tipo)) b.appendChild(el("button",{class:"b-sec",type:"button",onclick:function(){ CALC.elegir(n.tipo); state.view="calc"; render(); window.scrollTo(0,0); }},["🧮 Calculadora"]));
+  c.appendChild(b);
+  app.appendChild(c);
+  [["🧰 Equipo",lista(n.equipo)],["🪜 Procedimiento",lista(n.pasos,true)],
+   ["🧮 Fórmulas",el("div",null,n.formulas.map(function(f){ return el("div",{class:"nf"},[el("small",null,[f[0]]),el("code",null,[f[1]])]); }))],
+   ["📏 Criterios clave",lista(n.criterios)],["⚠️ Errores comunes",lista(n.errores)]].forEach(function(s,i){
+    var d=el("details",{class:"card nd"},[el("summary",null,[s[0]]),s[1]]); if(i<2) d.setAttribute("open","");
+    app.appendChild(d);
+  });
+}
+function vistaRepaso(app){
+  var Q=NORM.quiz, total=Q.qs.length, bien=Q.qs.filter(function(q){ return q.r===q.c; }).length;
+  app.appendChild(el("button",{class:"back",type:"button",onclick:function(){ NORM.quiz=null; render(); window.scrollTo(0,0); }},["‹ Salir del repaso"]));
+  if(Q.i>=total){
+    var pct=Math.round(bien/total*100);
+    app.appendChild(el("div",{class:"card",style:"text-align:center"},[el("div",{class:"nc"},[Q.titulo]),
+      el("div",{class:"qres"},[bien+" / "+total]),el("div",{class:"fdesc"},[pct>=80?"¡Muy bien! Dominas el tema.":pct>=60?"Bien, repasa los puntos que fallaste.":"Conviene leer la ficha otra vez."]),
+      el("div",{class:"btns",style:"justify-content:center"},[el("button",{class:"b-pri",type:"button",onclick:function(){
+        var ids=uniq(Q.qs.map(function(q){ return q.id; })); iniciarRepaso(NORMAS.filter(function(n){ return ids.indexOf(n.id)>=0; }),Q.titulo); }},["↻ Otra ronda"])])]));
+    return;
+  }
+  var q=Q.qs[Q.i], resp=q.r!==null;
+  var c=el("div",{class:"card"},[el("div",{class:"qbar"},[el("span",null,[Q.titulo==="ASTM "+q.id?Q.titulo:Q.titulo+" · ASTM "+q.id]),el("span",null,[(Q.i+1)+" / "+total])]),
+    el("div",{class:"qq"},[q.q])]);
+  q.o.forEach(function(o,i){
+    var cls="qo"+(resp?(i===q.c?" bien":i===q.r?" mal":" off"):"");
+    c.appendChild(el("button",{class:cls,type:"button",disabled:resp?"disabled":null,onclick:function(){ if(q.r!==null) return; q.r=i; render(); }},[o]));
+  });
+  if(resp){
+    c.appendChild(el("div",{class:"qe"+(q.r===q.c?" bien":" mal")},[el("b",null,[q.r===q.c?"Correcto. ":"No es esa. "]),q.e]));
+    c.appendChild(el("div",{class:"btns"},[el("button",{class:"b-pri",type:"button",onclick:function(){ Q.i++; render(); window.scrollTo(0,0); }},[Q.i+1<total?"Siguiente ›":"Ver resultado"])]));
+  }
+  app.appendChild(c);
+}
+
 
 /* ════════════════════════════════════════════════════════════════
    RENDER GENERAL
@@ -3414,6 +3610,7 @@ function render(){
   else if(state.view==="hoy") renderDia(app);
   else if(state.view==="pend") renderPend(app);
   else if(state.view==="calc"){ cabecera(app); CALC.vista(app); }
+  else if(state.view==="normas"){ cabecera(app); vistaNormas(app); }
   else renderMain(app);
   if(keepId){
     var back=document.querySelector('[data-fk="'+keepId+'"]');
