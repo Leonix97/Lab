@@ -271,6 +271,19 @@
   .pgrid input.lleno{background:#f0fdfa;border-color:#99f6e4}
   .tfinfo{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#374151;margin-top:8px}
   .tfinfo b{font-size:15px}
+  .hubox{border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:8px;background:#fafafa}
+  .hutop{display:grid;grid-template-columns:minmax(0,1fr) 32px;gap:6px;margin-bottom:8px}
+  .hurow{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,.75fr) minmax(0,.75fr) 32px;gap:5px;align-items:center;margin-bottom:5px}
+  .hurow input,.hutop input{padding:7px 6px}
+  .leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:#374151;margin-top:8px}
+  .leg i{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:5px}
+  .leg i.dash{border-top-style:dashed}
+  .leg i.dot{width:9px;height:9px;border:0;border-radius:50%}
+  .ht{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;font-variant-numeric:tabular-nums}
+  .ht th{font-size:11px;color:#6b7280;font-weight:600;text-align:right;padding:4px 3px}
+  .ht th:first-child,.ht td:first-child{text-align:left}
+  .ht td{padding:6px 3px;border-top:1px solid #eef0f3;text-align:right}
+  .ht td.ok{color:#047857;font-weight:700} .ht td.bad{color:#dc2626;font-weight:700}
   .g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
   .live:empty{display:none}
   .live.strong{font-size:15px}
@@ -388,6 +401,12 @@ var MAT_COD = {"RELLENO ESTRUCTURAL":"RE","SUELO DE BAJA PERMEABILIDAD":"SBP","S
                "RELLENO CONTROLADO":"RC","RELLENO MASIVO DE APILAMIENTO":"RMA","RELLENO DE RIPIOS":"RR"};
 var PROC_BASE = ["PROPIO","CANTERA CA-01","CANTERA 6","CHANCADORA","DME CHOLOQUE","TAJO MINA 4C","TAJO 5E","TAJO 4B","STOCKPILE 5"];
 /* material dentro de un frente: qué ensayos y procedencias aplican */
+/* huso del relleno controlado (backfill) Etapa 1B — SH-12410-SPT-13-13-0001 */
+function husoEtapa1B(){ return {nombre:"BACKFILL ETAPA 1B",p:[
+  {t:'12"',mm:"304.8",mn:"100",mx:"100"},{t:'8"',mm:"203.2",mn:"60",mx:"100"},{t:'4"',mm:"101.6",mn:"50",mx:"100"},
+  {t:'1"',mm:"25",mn:"40",mx:"80"},{t:"N°4",mm:"4.75",mn:"25",mx:"65"},{t:"N°40",mm:"0.425",mn:"15",mx:"55"},{t:"N°200",mm:"0.075",mn:"10",mx:"50"}]}; }
+function sembrarHuso(o){ var f=findBy(o.frentes||[],"id","tajo"), x=f?findBy(f.mats||[],"m","RELLENO CONTROLADO"):null;
+  if(x && !(Array.isArray(x.hu)&&x.hu.length)) x.hu=[husoEtapa1B()]; }
 function matFrente(nombre,ensIds,procs){ return {m:nombre,ens:ensIds.slice(),proc:procs.slice()}; }
 function ensayosPorDefecto(nombre){
   return defaultEnsayos().map(function(e){ return e.id; }).filter(function(id){ return !(nombre==="SUELO DE BAJA PERMEABILIDAD" && id==="REEMPLAZO"); });
@@ -398,8 +417,8 @@ function defaultConfig(){
   var mats=Object.keys(MAT_COD);
   function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
-  return {
-    esquema:4, conEval:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
+  var cd={
+    esquema:4, conEval:true, conHuso:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -415,6 +434,8 @@ function defaultConfig(){
     series:{},
     reporte:defaultReporte()
   };
+  sembrarHuso(cd);
+  return cd;
 }
 /* mapa id → ensayo (no se guarda en el JSON) */
 function vincular(c){ var m={}; c.ensayos.forEach(function(e){ m[e.id]=e; });
@@ -474,9 +495,14 @@ function sanitizeCfg(c){
         .map(function(x){ return {m:x.m,ens:uniq(arrStr(x.ens).map(function(k){ return mapaEv[k]||k; }).concat(sumarEval?["EVALMAT"]:[])).filter(function(k){ return ids.indexOf(k)>=0; }),
                                   proc:uniq(arrStr(x.proc).map(up)).filter(function(p){ return o.procedencias.indexOf(p)>=0; }),
                                   tf:(Array.isArray(x.tf)?x.tf:[]).filter(function(t){ return t&&str(t.nombre); })
-                                    .map(function(t){ return {nombre:up(t.nombre),dms:str(t.dms),coph:str(t.coph)}; })}; })};
+                                    .map(function(t){ return {nombre:up(t.nombre),dms:str(t.dms),coph:str(t.coph)}; }),
+                                  hu:(Array.isArray(x.hu)?x.hu:[]).filter(function(h){ return h&&str(h.nombre); })
+                                    .map(function(h){ return {nombre:up(h.nombre),p:(Array.isArray(h.p)?h.p:[]).filter(function(q){ return q&&(str(q.t)||str(q.mm)); })
+                                      .map(function(q){ return {t:str(q.t),mm:str(q.mm),mn:str(q.mn),mx:str(q.mx)}; })}; })}; })};
   }).filter(function(f){ return !!f.nombre; });
   if(!o.frentes.length) o.frentes=d.frentes;
+  if(!c.conHuso) sembrarHuso(o);
+  o.conHuso=true;
   o.series={};
   Object.keys(c.series||{}).forEach(function(k){ var s=c.series[k]||{}; if(ent(s.sig)>=1||s.reinicio) o.series[k]={sig:String(ent(s.sig)>=1?ent(s.sig):1),reinicio:Number(s.reinicio)||0}; });
   return vincular(o);
@@ -2238,6 +2264,31 @@ function materialFrenteCfg(C,f,x,j){
   });
   body.appendChild(el("button",{class:"add",type:"button",style:"margin-bottom:6px",onclick:function(){ x.tf.push({nombre:"",dms:"",coph:""}); markDirty(); render(); }},["+ Agregar test fill"]));
   body.appendChild(el("div",{class:"fdesc",style:"margin:0 0 14px"},["Aparecen en 🧮 Calcular › Reemplazo de agua al elegir este frente y material."]));
+  /* huso granulométrico: límites de % que pasa por tamiz */
+  if(!Array.isArray(x.hu)) x.hu=[];
+  body.appendChild(el("div",{class:"glbl"},["Huso granulométrico (para calcular la G)"]));
+  x.hu.forEach(function(h,hi){
+    if(!Array.isArray(h.p)) h.p=[];
+    var bx=el("div",{class:"hubox"});
+    bx.appendChild(el("div",{class:"hutop"},[
+      cfgInput(h.nombre,"Nombre, ej: BACKFILL ETAPA 1B","hu_n_"+key+"_"+hi,function(v){ h.nombre=v; },{up:true,max:40}),
+      el("button",{class:"xb",type:"button","aria-label":"Quitar huso",onclick:function(){ if(!confirm("¿Quitar el huso "+(h.nombre||"sin nombre")+"?")) return; x.hu.splice(hi,1); markDirty(); render(); }},["✕"])]));
+    if(h.p.length) bx.appendChild(el("div",{class:"hurow tfh"},[el("small",null,["Tamiz"]),el("small",null,["mm"]),el("small",null,["Mín %"]),el("small",null,["Máx %"]),el("span")]));
+    h.p.forEach(function(q,qi){
+      var kk=key+"_"+hi+"_"+qi;
+      bx.appendChild(el("div",{class:"hurow"},[
+        cfgInput(q.t,'N°4',"hu_t_"+kk,function(v){ q.t=v; },{max:8}),
+        cfgInput(q.mm,"4.75","hu_m_"+kk,function(v){ q.mm=v; },{num:true,max:6}),
+        cfgInput(q.mn,"25","hu_a_"+kk,function(v){ q.mn=v; },{num:true,max:5}),
+        cfgInput(q.mx,"65","hu_b_"+kk,function(v){ q.mx=v; },{num:true,max:5}),
+        el("button",{class:"xb",type:"button","aria-label":"Quitar tamiz",onclick:function(){ h.p.splice(qi,1); markDirty(); render(); }},["✕"])]));
+    });
+    bx.appendChild(el("button",{class:"mini",type:"button",onclick:function(){ h.p.push({t:"",mm:"",mn:"",mx:""}); markDirty(); render(); }},["+ Tamiz"]));
+    body.appendChild(bx);
+  });
+  body.appendChild(el("button",{class:"add",type:"button",style:"margin-bottom:6px",onclick:function(){
+    var b=husoEtapa1B(); x.hu.push({nombre:"",p:b.p.map(function(q){ return {t:q.t,mm:q.mm,mn:"",mx:""}; })}); markDirty(); render(); }},["+ Agregar huso"]));
+  body.appendChild(el("div",{class:"fdesc",style:"margin:0 0 14px"},["Aparecen en 🧮 Calcular › Granulometría al elegir este frente y material."]));
   body.appendChild(el("div",{class:"btns",style:"margin-top:0"},[el("button",{class:"mini dng",type:"button",onclick:function(){
     if(confirm("¿Quitar “"+cap(x.m)+"” de este frente?")){ f.mats.splice(j,1); ed.matAb=null; markDirty(); render(); } }},["Quitar del frente"])]));
   box.appendChild(body);
@@ -2316,7 +2367,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v30";
+var VERSION_APP="v33";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
@@ -2435,8 +2486,8 @@ function nuevoForm(tipo){
   if(tipo==="CONO"){ d.equipo=""; d.arenaCono=""; d.densArena=""; d.fi=""; d.ff=""; }
   if(tipo==="REEMPLAZO") d={frente:"",mat:"",tf:"",mds:"",och:"",req:String(cfg.compMin||"95"),ci:"",cf:"",hi:"",hf:"",pesos:vacios(20),pAb:false};
   if(tipo==="HUMEDAD"){ d.m=[filaW(),filaW()]; }
-  if(tipo==="GRANULO"){ d.mt=""; d.ml=""; d.np=false; d.llG=""; d.ipG="";
-    d.tam=parseTamices(cfg.tamices).map(function(t){ return {n:t.n,mm:t.mm,r:""}; }); }
+  if(tipo==="GRANULO") d={frente:"",mat:"",hu:"",gr:GR_G.map(function(){ return {r:""}; }),mh:"",wh:"",ws:"",wt:"",wl:"",
+    fi:GR_F.map(function(){ return {r:""}; }),fondo:"",np:false,llG:"",ipG:""};
   if(tipo==="LIMITES"){ d.ll=[filaLL(),filaLL(),filaLL()]; d.lp=[filaW(),filaW()]; d.np=false; }
   if(tipo==="PROCTOR"){ d.metodo="A"; d.molde=""; d.vm=""; d.pm=""; d.gs="2.65"; d.pwModo="TARAS"; d.pts=[filaP(),filaP(),filaP(),filaP(),filaP()]; }
   return d;
@@ -2662,49 +2713,107 @@ function sucs(g){
   if(!f) return G+p+"-"+G+"M/"+G+"C (falta LL e IP)";
   return G+p+"-"+G+(f==="CM"?"C":f);
 }
+/* ── granulometría (formato ST.CA.IN.005.F003, tamizado compuesto con separación en N°4) ──
+   fracción gruesa: retenido seco por tamiz; fracción fina: masa húmeda que pasa N°4, su humedad
+   (la misma muestra de la humedad se lava y se tamiza) y los retenidos del fino. */
+/* [tamiz, mm, entra en la masa seca > N°4] — como el formato: N35 = SUMA(2" … N°4) */
+var GR_G=[['6"',152.4,0],['4"',101.6,0],['3"',75,0],['2"',50,1],['1 1/2"',37.5,1],['1"',25,1],['3/4"',19,1],['1/2"',12.7,1],['3/8"',9.5,1],['N°4',4.75,1]];
+var GR_F=[['N°10',2],['N°20',0.85],['N°40',0.425],['N°60',0.25],['N°100',0.15],['N°140',0.106],['N°200',0.075]];
+function r1(x){ return Math.round(x*10+1e-9)/10; }
+function husosCalc(d){ var x=matCalc(d); return x&&Array.isArray(x.hu)?x.hu.filter(function(h){ return str(h.nombre); }):[]; }
+function husoCalc(d){ return d.hu?findBy(husosCalc(d),"nombre",d.hu):null; }
+function elegirHuso(d){ var l=husosCalc(d); if(!d.hu && l.length===1) d.hu=l[0].nombre; if(d.hu && !findBy(l,"nombre",d.hu)) d.hu=""; }
+function granCalc(d){
+  var h=n(d.wh), s=n(d.ws), t=n(d.wt), l=n(d.wl), w=NaN;
+  var Mw=r1(h-s), Ms=r1(s-t);
+  if(Ms>0 && ok(Mw) && Mw>=0) w=r1(Mw/Ms*100);
+  var mh=n(d.mh), Ms4=(ok(w)&&mh>0)?r1(mh/(100+w)*100):NaN;
+  var Mg=0, hayG=false;
+  d.gr.forEach(function(r,i){ var x=n(r.r); if(ok(x)){ hayG=true; if(GR_G[i][2]) Mg+=x; } });
+  Mg=r1(Mg);
+  var Mt=ok(Ms4)?r1(Ms4+Mg):NaN, rows=[], G=0;
+  d.gr.forEach(function(r,i){ var x=n(r.r); if(!ok(x)) x=0; var F=Mt>0?r1(100/Mt*x):NaN; G=r1(G+F);
+    rows.push({n:GR_G[i][0],mm:GR_G[i][1],ret:x,pr:F,pasa:r1(100-G),gr:true}); });
+  var H4=rows[rows.length-1].pasa, sumF=0, hayF=false;
+  d.fi.forEach(function(r,i){ var x=n(r.r); if(ok(x)) hayF=true; else x=0; sumF+=x;
+    var F=(Ms>0&&ok(H4))?r1(H4/Ms*x):NaN; G=r1(G+F);
+    rows.push({n:GR_F[i][0],mm:GR_F[i][1],ret:x,pr:F,pasa:r1(100-G)}); });
+  var pan=n(d.fondo); if(ok(pan)) sumF+=pan;
+  var lav=(ok(l)&&ok(t))?r1(l-t):NaN, lavado=(ok(s)&&ok(l))?r1(s-l):NaN;
+  return {w:w,Ms:Ms,Mw:Mw,Ms4:Ms4,Mg:Mg,Mt:Mt,rows:rows,H4:H4,lav:lav,lavado:lavado,sumF:r1(sumF),hayG:hayG,hayF:hayF};
+}
+/* % que pasa en una abertura cualquiera (para los puntos del huso) */
+function pasaHuso(rows,mm){
+  for(var i=0;i<rows.length;i++) if(Math.abs(rows[i].mm-mm)<=mm*0.02) return rows[i].pasa;
+  if(mm>rows[0].mm) return 100;
+  return pasaEn(rows,mm);
+}
+function evalHuso(hu,rows){
+  return (hu.p||[]).map(function(p){ var mm=n(p.mm), mn=n(p.mn), mx=n(p.mx), v=ok(mm)&&mm>0?pasaHuso(rows,mm):NaN;
+      return {t:p.t,mm:mm,mn:mn,mx:mx,p:v,ok:ok(v)?((!ok(mn)||v>=mn-1e-9)&&(!ok(mx)||v<=mx+1e-9)):null}; })
+    .filter(function(p){ return ok(p.mm)&&p.mm>0; }).sort(function(a,b){ return b.mm-a.mm; });
+}
 function calcGranulo(d){
-  var R=nr(), g=granPts(d), ml=n(d.ml);
-  if(!(g.mt>0)) R.falta.push("masa seca total");
-  if(!g.hay) R.falta.push("masas retenidas");
-  if(R.falta.length) return R;
-  var tol=Math.max(1,g.mt*0.003);
-  if(g.fondo < -tol){ R.err.push("La suma de retenidos ("+fx(g.sum,1)+" g) supera la masa seca total ("+fx(g.mt,1)+" g)."); return R; }
-  if(ok(ml)){
-    if(ml>g.mt) R.err.push("La masa después del lavado no puede ser mayor que la masa total.");
-    else R.rows.push(["Pérdida por lavado",fx(g.mt-ml,1)+" g"]);
-    if(g.sum>ml+tol) R.warn.push("Los retenidos ("+fx(g.sum,1)+" g) suman más que la masa lavada ("+fx(ml,1)+" g).");
+  var R=nr(), g=granCalc(d), hu=husoCalc(d);
+  if(!g.hayG) R.falta.push("retenidos de la fracción gruesa");
+  if(!(n(d.mh)>0)) R.falta.push("masa húmeda que pasa N°4");
+  if(!ok(g.w)) R.falta.push("humedad del fino (recipiente, húmedo y seco)");
+  if(!g.hayF) R.falta.push("retenidos de la fracción fina");
+  if(n(d.ws)>n(d.wh)) R.err.push("En la humedad, el seco + recipiente no puede pesar más que el húmedo + recipiente.");
+  if(ok(g.lav) && ok(g.lavado) && g.lavado<0) R.err.push("La masa seca lavada + recipiente no puede ser mayor que la masa seca + recipiente.");
+  if(ok(g.w)) R.rows.push(["Humedad del fino (w)",fx(g.w,1)+" %"]);
+  if(ok(g.Ms4)) R.rows.push(["Masa seca que pasa N°4",fx(g.Ms4,1)+" g"]);
+  if(g.hayG) R.rows.push(["Masa seca > N°4 (2\" a N°4)",fx(g.Mg,1)+" g"]);
+  if(ok(g.Mt)) R.rows.push(["Masa seca total",fx(g.Mt,1)+" g"]);
+  if(ok(g.lav) && g.lav>0 && g.hayF){
+    var perd=(g.lav-g.sumF)/g.lav*100;
+    R.rows.push(["Pérdida en el tamizado del fino",fx(perd,2)+" %",Math.abs(perd)<0.5?"ok":"bad"]);
+    if(Math.abs(perd)>=0.5) R.warn.push("Los retenidos del fino suman "+fx(g.sumF,1)+" g y la masa lavada es "+fx(g.lav,1)+" g: la diferencia ("+fx(perd,2)+" %) pasa el 0.5 % del criterio.");
   }
-  R.rows.push(["Fondo + finos (calc.)",fx(g.fondo,1)+" g"]);
-  var rows=g.rows;
-  var P4=pasaEn(rows,4.75), P200=pasaEn(rows,0.075);
-  var grava=100-P4, arena=P4-P200, finos=P200;
-  var D10=interpMm(rows,10), D30=interpMm(rows,30), D60=interpMm(rows,60);
-  var cu=D60/D10, cc=D30*D30/(D10*D60);
-  var llG=n(d.llG), ipG=n(d.ipG);
-  var cls=sucs({grava:grava,arena:arena,finos:finos,cu:cu,cc:cc,ll:llG,ip:ipG,np:!!d.np});
-  R.rows.push(["Grava (> N°4)",fx(grava,1)+" %"]);
-  R.rows.push(["Arena (N°4 – N°200)",fx(arena,1)+" %"]);
-  R.rows.push(["Finos (< N°200)",fx(finos,1)+" %"]);
-  R.rows.push(["D10 / D30 / D60",fx(D10,3)+" / "+fx(D30,3)+" / "+fx(D60,3)+" mm"]);
-  R.rows.push(["Cu / Cc",fx(cu,1)+" / "+fx(cc,2)]);
-  if(cls) R.rows.push(["SUCS (referencial)",cls,"ok"]);
-  if(!ok(P200)) R.warn.push("No hay tamiz N°200 (0.075 mm) en la serie: no se calculan los finos.");
-  var serie = rows.map(function(r){ return r.n+"="+(r.pasa>=99.95?"100":fx(r.pasa,1)); }).join(" | ");
-  R.lines=[
-    "MASA SECA TOTAL: "+fx(g.mt,1)+" g",
-    "GRAVA: "+fx(grava,1)+" %",
-    "ARENA: "+fx(arena,1)+" %",
-    "FINOS: "+fx(finos,1)+" %",
-    ok(cu)?"CU: "+fx(cu,1):null,
-    ok(cc)?"CC: "+fx(cc,2):null,
-    cls?"SUCS: "+cls:null,
-    "% QUE PASA: "+serie
-  ];
-  R.sum={grava:grava,arena:arena,finos:finos,d10:D10,d30:D30,d60:D60,cu:cu,cc:cc,sucs:cls||"",
-         pasa:rows.map(function(r){ return [r.n,r.mm,r.pasa]; })};
-  R.chart = chart({xlog:true,xrev:true,y0:0,y1:100,xLabel:"Abertura (mm)",yLabel:"% que pasa",
-    series:[{pts:rows.map(function(r){return [r.mm,r.pasa];}),type:"line",color:"#0d9488",dots:true}],
-    vlines:[{x:4.75,lbl:"N°4"},{x:0.075,lbl:"N°200"}]});
+  if(R.falta.length || R.err.length) return R;
+  var rows=g.rows, H3=rows[2].pasa, H200=rows[rows.length-1].pasa;
+  var bol=0, grv=0, are=0;
+  rows.forEach(function(r,i){ if(i<3) bol+=r.pr; else if(r.gr) grv+=r.pr; else are+=r.pr; });
+  R.rows.push(["Bolones (> 3\")",fx(r1(bol),1)+" %"]);
+  R.rows.push(["Gravas (3\" – N°4)",fx(r1(grv),1)+" %"]);
+  R.rows.push(["Arenas (N°4 – N°200)",fx(r1(are),1)+" %"]);
+  R.rows.push(["Limos y arcillas (< N°200)",fx(H200,1)+" %"]);
+  /* SUCS: porcentajes sin bolones (referidos a lo que pasa 3"), como el formato */
+  var gS=r1(100-g.H4/H3*100), fS=r1(H200/H3*100), aS=r1(100-gS-fS);
+  var rs=rows.slice(2).map(function(r){ return {mm:r.mm,pasa:r.pasa/H3*100}; });
+  var D10=interpMm(rs,10), D30=interpMm(rs,30), D60=interpMm(rs,60), cu=D60/D10, cc=D30*D30/(D10*D60);
+  var cls=sucs({grava:gS,arena:aS,finos:fS,cu:cu,cc:cc,ll:n(d.llG),ip:n(d.ipG),np:!!d.np});
+  R.rows.push(["Para SUCS (sin bolones)","G "+fx(gS,1)+" · A "+fx(aS,1)+" · F "+fx(fS,1)+" %"]);
+  if(ok(D60)) R.rows.push(["D10 / D30 / D60",(ok(D10)?fx(D10,3):"—")+" / "+(ok(D30)?fx(D30,3):"—")+" / "+fx(D60,2)+" mm"]);
+  if(ok(cu)&&ok(cc)) R.rows.push(["Cu / Cc",fx(cu,1)+" / "+fx(cc,2)]);
+  if(cls) R.rows.push(["SUCS",cls,"ok"]);
+  var ev=hu?evalHuso(hu,rows):[], fuera=ev.filter(function(p){ return p.ok===false; });
+  if(hu && ev.length){
+    R.huso={nombre:hu.nombre,pts:ev};
+    R.rows.push(["Huso "+hu.nombre,fuera.length?"NO CUMPLE":"CUMPLE",fuera.length?"bad":"ok"]);
+  }
+  R.lines=["GRAVAS: "+fx(r1(grv),1)+" %","ARENAS: "+fx(r1(are),1)+" %","FINOS: "+fx(H200,1)+" %",cls?"SUCS: "+cls:null,
+    hu&&ev.length?"HUSO "+hu.nombre+": "+(fuera.length?"NO CUMPLE":"CUMPLE"):null];
+  R.sum={grava:grv,arena:are,finos:H200,sucs:cls||"",pasa:rows.map(function(r){ return [r.n,r.mm,r.pasa]; })};
+  var curva=rows.map(function(r){ return [r.mm,r.pasa]; });
+  /* como el gráfico del formato: tamaño de partícula creciente hacia la derecha, tamices marcados arriba */
+  var tam=GR_G.concat(GR_F).map(function(t){ return {x:t[1],lbl:t[0],fuerte:t[0]==="N°4"||t[0]==="N°200"}; });
+  [['8"',203.2],['10"',254],['12"',304.8]].forEach(function(t){ tam.push({x:t[1],lbl:t[0]}); });
+  var o={xlog:true,xfix:true,x0:0.06,x1:340,y0:0,y1:100,xLabel:"Tamaño de partícula (mm)",yLabel:"% que pasa",
+    series:[], sieves:tam,
+    guides:[[10,"#be185d"],[30,"#b45309"],[60,"#0369a1"]].map(function(q){ return {x:interpMm(rows,q[0]),y:q[0],lbl:"D"+q[0],color:q[1]}; })};
+  R.legend=[["#0f766e","Curva de la muestra",""]];
+  if(ev.length){
+    var lo=ev.filter(function(p){ return ok(p.mn); }).map(function(p){ return [p.mm,p.mn]; });
+    var hi=ev.filter(function(p){ return ok(p.mx); }).map(function(p){ return [p.mm,p.mx]; });
+    o.band={hi:hi,lo:lo,fill:"rgba(245,158,11,.16)"};
+    o.series.push({pts:hi,type:"line",color:"#d97706",dash:true,thin:true});
+    o.series.push({pts:lo,type:"line",color:"#d97706",dash:true,thin:true});
+    R.legend.push(["#d97706","Huso "+hu.nombre,"dash"]);
+  }
+  o.series.push({pts:curva,type:"line",color:"#0f766e",dots:true});
+  if(fuera.length){ o.series.push({pts:fuera.map(function(p){ return [p.mm,p.p]; }),type:"dots",color:"#dc2626",r:5.5}); R.legend.push(["#dc2626","Fuera del huso","dot"]); }
+  R.chart=chart(o);
   return R;
 }
 
@@ -2858,13 +2967,14 @@ function logTicks(a,b){
   return out;
 }
 function chart(o){
-  var W=480,H=260,L=50,Rm=14,T=14,B=42,pw=W-L-Rm,ph=H-T-B;
+  var W=480,H=o.sieves?330:260,L=50,Rm=14,T=o.sieves?46:14,B=o.sieves?72:42,pw=W-L-Rm,ph=H-T-B;
   var xs=[],ys=[];
   o.series.forEach(function(s){ s.pts.forEach(function(p){ if(ok(p[0])&&ok(p[1])){ xs.push(p[0]); ys.push(p[1]); } }); });
   if(!xs.length) return "";
   var x0=o.x0!=null?o.x0:Math.min.apply(null,xs), x1=o.x1!=null?o.x1:Math.max.apply(null,xs);
   var y0=o.y0!=null?o.y0:Math.min.apply(null,ys), y1=o.y1!=null?o.y1:Math.max.apply(null,ys);
-  if(o.xlog){ x0=Math.pow(10,Math.floor(Math.log10(x0)+1e-9)); x1=Math.pow(10,Math.ceil(Math.log10(x1)-1e-9)); if(x1<=x0) x1=x0*10; }
+  if(o.xlog && o.xfix){}
+  else if(o.xlog){ x0=Math.pow(10,Math.floor(Math.log10(x0)+1e-9)); x1=Math.pow(10,Math.ceil(Math.log10(x1)-1e-9)); if(x1<=x0) x1=x0*10; }
   else if(x1<=x0){ x0-=1; x1+=1; }
   if(y1<=y0){ y0-=1; y1+=1; }
   function X(x){ var t=o.xlog?(Math.log10(x)-Math.log10(x0))/(Math.log10(x1)-Math.log10(x0)):(x-x0)/(x1-x0); if(o.xrev) t=1-t; return (L+t*pw).toFixed(1); }
@@ -2872,7 +2982,7 @@ function chart(o){
   var id="cl"+(++chartN);
   var s='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif" font-size="10">';
   s+='<defs><clipPath id="'+id+'"><rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+'"/></clipPath></defs>';
-  (o.xlog?logTicks(x0,x1):linTicks(x0,x1)).forEach(function(t){
+  (o.sieves?[]:o.xlog?logTicks(x0,x1):linTicks(x0,x1)).forEach(function(t){
     var x=X(t.v);
     s+='<line x1="'+x+'" y1="'+T+'" x2="'+x+'" y2="'+(T+ph)+'" stroke="'+(t.major?"#cbd5e1":"#eef0f3")+'"/>';
     if(t.lbl) s+='<text x="'+x+'" y="'+(T+ph+14)+'" text-anchor="middle" fill="#64748b">'+t.lbl+'</text>';
@@ -2883,18 +2993,39 @@ function chart(o){
     s+='<text x="'+(L-5)+'" y="'+(+y+3)+'" text-anchor="end" fill="#64748b">'+t.lbl+'</text>';
   });
   s+='<rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+'" fill="none" stroke="#94a3b8"/>';
+  /* tamices: línea vertical y nombre arriba, como el formato */
+  (o.sieves||[]).forEach(function(v){
+    if(!(v.x>=Math.min(x0,x1)&&v.x<=Math.max(x0,x1))) return;
+    var x=X(v.x), fuerte=v.fuerte;
+    s+='<line x1="'+x+'" y1="'+T+'" x2="'+x+'" y2="'+(T+ph)+'" stroke="'+(fuerte?"#94a3b8":"#dbe1e8")+'"'+(fuerte?'':' stroke-dasharray="2 2"')+'/>';
+    s+='<text transform="translate('+(+x+3)+' '+(T-3)+') rotate(-90)" fill="'+(fuerte?"#334155":"#64748b")+'" font-size="9"'+(fuerte?' font-weight="700"':'')+'>'+v.lbl+'</text>';
+    s+='<text transform="translate('+(+x+3)+' '+(T+ph+5)+') rotate(-90)" text-anchor="end" fill="#64748b" font-size="9">'+(v.x<1?v.x.toFixed(3):Math.abs(v.x*10-Math.round(v.x*10))>1e-6?v.x.toFixed(2):v.x.toFixed(1))+'</text>';
+  });
   (o.vlines||[]).forEach(function(v){
     if(!ok(v.x)||v.x<Math.min(x0,x1)||v.x>Math.max(x0,x1)) return;
     var x=X(v.x);
     s+='<line x1="'+x+'" y1="'+T+'" x2="'+x+'" y2="'+(T+ph)+'" stroke="#f59e0b" stroke-dasharray="4 3"/>';
     s+='<text x="'+(+x+3)+'" y="'+(T+11)+'" fill="#b45309" font-weight="700">'+v.lbl+'</text>';
   });
+  if(o.band){
+    var bh=o.band.hi.filter(function(q){ return ok(q[0])&&ok(q[1]); }), bl=o.band.lo.filter(function(q){ return ok(q[0])&&ok(q[1]); });
+    if(bh.length>1 && bl.length>1)
+      s+='<path clip-path="url(#'+id+')" d="'+bh.concat(bl.slice().reverse()).map(function(q,i){ return (i?"L":"M")+X(q[0])+" "+Y(q[1]); }).join(" ")+' Z" fill="'+o.band.fill+'" stroke="none"/>';
+  }
   o.series.forEach(function(se){
     var p=se.pts.filter(function(q){ return ok(q[0])&&ok(q[1]); });
     if(se.type==="line" && p.length>1){
-      s+='<path clip-path="url(#'+id+')" d="'+p.map(function(q,i){ return (i?"L":"M")+X(q[0])+" "+Y(q[1]); }).join(" ")+'" fill="none" stroke="'+se.color+'" stroke-width="2"'+(se.dash?' stroke-dasharray="5 4"':'')+'/>';
+      s+='<path clip-path="url(#'+id+')" d="'+p.map(function(q,i){ return (i?"L":"M")+X(q[0])+" "+Y(q[1]); }).join(" ")+'" fill="none" stroke="'+se.color+'" stroke-width="'+(se.thin?1.5:2)+'"'+(se.dash?' stroke-dasharray="5 4"':'')+'/>';
     }
-    if(se.type==="dots"||se.dots) p.forEach(function(q){ s+='<circle cx="'+X(q[0])+'" cy="'+Y(q[1])+'" r="3.6" fill="'+se.color+'"/>'; });
+    if(se.type==="dots"||se.dots) p.forEach(function(q){ s+='<circle cx="'+X(q[0])+'" cy="'+Y(q[1])+'" r="'+(se.r||3.6)+'" fill="'+se.color+'"'+(se.r?' stroke="#fff" stroke-width="1.5"':'')+'/>'; });
+  });
+  /* D10, D30, D60: guía horizontal desde el eje y vertical hasta el eje x */
+  (o.guides||[]).forEach(function(g){
+    if(!ok(g.x)||!ok(g.y)||!(g.x>=Math.min(x0,x1)&&g.x<=Math.max(x0,x1))) return;
+    var x=X(g.x), y=Y(g.y), xa=o.xrev?(L+pw):L;
+    s+='<path d="M'+xa+' '+y+' L'+x+' '+y+' L'+x+' '+(T+ph)+'" fill="none" stroke="'+g.color+'" stroke-width="1.3" stroke-dasharray="4 3"/>';
+    s+='<circle cx="'+x+'" cy="'+y+'" r="3.2" fill="#fff" stroke="'+g.color+'" stroke-width="1.6"/>';
+    s+='<text x="'+(+x+4)+'" y="'+(+y-4)+'" fill="'+g.color+'" font-weight="700">'+g.lbl+'</text>';
   });
   s+='<text x="'+(L+pw/2)+'" y="'+(H-6)+'" text-anchor="middle" fill="#374151" font-weight="700">'+o.xLabel+'</text>';
   s+='<text transform="translate(12 '+(T+ph/2)+') rotate(-90)" text-anchor="middle" fill="#374151" font-weight="700">'+o.yLabel+'</text>';
@@ -3098,31 +3229,72 @@ function formHumedad(app){
   c.appendChild(live(function(){ var w=avg(d.m.map(wRow)); return ok(w)?"Humedad promedio: "+fx(w,1)+" %":"Escribe los pesos de al menos una muestra."; }));
   app.appendChild(c);
 }
+function frenteMatSec(app,d,ensayo,desc,alCambiar){
+  var F=cfg_global(), fr=frenteCalc(d), x=matCalc(d);
+  var c0=sec("Frente y material",desc);
+  c0.appendChild(fieldWrap("Frente",selectCtl(fr?d.frente:"",(F.frentes||[]).map(function(f){ return f.id; }),
+    function(id){ var f=findBy(F.frentes,"id",id); return f?cap(f.nombre):id; },
+    function(v){ d.frente=v; d.mat=""; alCambiar(); render(); },"Elige el frente…")));
+  if(fr){
+    var ms=(fr.mats||[]).filter(function(m){ return (m.ens||[]).indexOf(ensayo)>=0; });
+    if(!ms.length) ms=fr.mats||[];
+    c0.appendChild(fieldWrap("Material",selectCtl(x?d.mat:"",ms.map(function(m){ return m.m; }),cap,
+      function(v){ d.mat=v; alCambiar(); render(); },"Elige el material…")));
+  }
+  app.appendChild(c0);
+  return {fr:fr,x:x};
+}
+function filaTamiz(key,nombre,mm,i,ph){
+  var gt="minmax(0,1fr) minmax(0,1.15fr) 58px";
+  return el("div",{class:"grid",style:"grid-template-columns:"+gt},[
+    el("div",{class:"tz"},[nombre,el("small",null,[mm+" mm"])]),
+    inp(key+"."+i+".r",ph||"0",{num:true}),
+    live(function(){ var g=granCalc(S.d), off=key==="fi"?GR_G.length:0, x=g.rows[off+i]; return x&&ok(x.pasa)&&ok(x.pr)?(x.pasa>=99.95?"100":fx(x.pasa,1)):"—"; },"cx")]);
+}
+function cabTamiz(t2){
+  var gt="minmax(0,1fr) minmax(0,1.15fr) 58px";
+  return el("div",{class:"grid gh",style:"grid-template-columns:"+gt},[el("div",null,["Tamiz"]),el("div",null,[t2]),el("div",{style:"text-align:right"},["% pasa"])]);
+}
 function formGranulo(app){
   var d=S.d;
-  var c1=sec("Masas");
-  c1.appendChild(numField("mt","Masa seca total inicial","Ej: 5230","g"));
-  c1.appendChild(numField("ml","Masa seca después del lavado (opcional)","Ej: 4815","g","Si lavaste por la malla N°200. Si no, déjalo vacío."));
+  var fm=frenteMatSec(app,d,"GRANULO","Para elegir el huso granulométrico con el que se compara la curva.",function(){ d.hu=""; elegirHuso(d); });
+  var l=husosCalc(d);
+  var ch=sec("Huso granulométrico");
+  ch.appendChild(selectCtl(d.hu,l.map(function(h){ return h.nombre; }),function(k){ return k; },
+    function(v){ d.hu=v; render(); },l.length?"Elige el huso…":(fm.x?"Este material aún no tiene huso":"Elige frente y material…")));
+  if(!l.length && fm.x) ch.appendChild(el("div",{class:"fdesc",style:"margin-top:6px"},["Agrégalo en ⚙ › Frentes › "+cap(fm.fr.nombre)+" › "+cap(fm.x.m)+" › Editar › Huso granulométrico."]));
+  var hu=husoCalc(d);
+  if(hu) ch.appendChild(el("div",{class:"fdesc",style:"margin-top:6px"},[(hu.p||[]).map(function(p){ return p.t+": "+p.mn+"–"+p.mx; }).join(" · ")]));
+  app.appendChild(ch);
+  /* 1. fracción gruesa */
+  var c1=sec("1 · Fracción gruesa (retenido > N°4)","Masa seca retenida en cada tamiz, en gramos. Vacío = 0.");
+  c1.appendChild(cabTamiz("Retenido (g)"));
+  GR_G.forEach(function(t,i){ c1.appendChild(filaTamiz("gr",t[0],t[1],i)); });
+  c1.appendChild(live(function(){ var g=granCalc(d); return g.hayG?"Masa seca 2\" a N°4: "+fx(g.Mg,1)+" g":""; }));
   app.appendChild(c1);
-  var c2=sec("Tamizado","Masa retenida en cada tamiz, en gramos. Vacío = 0 g. Los tamices se cambian en ⚙ Ajustes.");
-  var gt="minmax(0,1.1fr) minmax(0,1fr) 64px";
-  c2.appendChild(el("div",{class:"grid gh",style:"grid-template-columns:"+gt},[el("div",null,["Tamiz"]),el("div",null,["Retenido (g)"]),el("div",{style:"text-align:right"},["% pasa"])]));
-  d.tam.forEach(function(r,i){
-    c2.appendChild(el("div",{class:"grid",style:"grid-template-columns:"+gt},[
-      el("div",{class:"tz"},[r.n,el("small",null,[r.mm+" mm"])]),
-      inp("tam."+i+".r","0",{num:true}),
-      live(function(){ var g=granPts(d), x=g.rows[i]; return x&&ok(x.pasa)?(x.pasa>=99.95?"100":fx(x.pasa,1)):"—"; },"cx")
-    ]));
-  });
-  c2.appendChild(live(function(){ var g=granPts(d); return g.mt>0?"Suma retenida: "+fx(g.sum,1)+" g · Fondo + finos: "+fx(g.fondo,1)+" g":"Escribe la masa seca total."; }));
+  /* 2. fracción fina y su humedad */
+  var c2=sec("2 · Fracción fina (pasa N°4)","La humedad del fino corrige la masa húmeda que pasa N°4.");
+  c2.appendChild(numField("mh","Masa de suelo húmedo que pasa N°4","Ej: 69850","g"));
+  c2.appendChild(el("div",{class:"glbl"},["Contenido de humedad del fino"]));
+  c2.appendChild(el("div",{class:"g2"},[numField("wh","Húmedo + recipiente","Ej: 948.9","g"),numField("ws","Seco + recipiente","Ej: 896.2","g")]));
+  c2.appendChild(el("div",{class:"g2"},[numField("wt","Recipiente","Ej: 375.0","g"),numField("wl","Seco lavado + recipiente","Ej: 737.7","g")]));
+  c2.appendChild(live(function(){ var g=granCalc(d); var a=[];
+    if(ok(g.w)) a.push("w = "+fx(g.w,1)+" %"); if(ok(g.Ms4)) a.push("seco que pasa N°4: "+fx(g.Ms4,1)+" g"); if(ok(g.lavado)&&g.lavado>=0) a.push("finos lavados: "+fx(g.lavado,1)+" g");
+    return a.join(" · "); },"live strong"));
   app.appendChild(c2);
-  var c3=sec("Plasticidad de los finos (opcional)","Para la clasificación SUCS. Cópiala del ensayo de límites de la misma muestra.");
-  c3.appendChild(fieldWrap("¿No plástico (NP)?",optsCtl(d.np?"SÍ":"NO",["SÍ","NO"],function(v){ d.np=v==="SÍ"; render(); },{})));
-  if(!d.np){
-    c3.appendChild(numField("llG","Límite líquido (LL)","Ej: 28","%"));
-    c3.appendChild(numField("ipG","Índice de plasticidad (IP)","Ej: 9","%"));
-  }
+  /* 3. tamizado del fino */
+  var c3=sec("3 · Tamizado del fino","El seco de la humedad, lavado por la N°200. Retenido en gramos.");
+  c3.appendChild(cabTamiz("Retenido (g)"));
+  GR_F.forEach(function(t,i){ c3.appendChild(filaTamiz("fi",t[0],t[1],i)); });
+  c3.appendChild(el("div",{class:"grid",style:"grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) 58px"},[
+    el("div",{class:"tz"},["Fondo",el("small",null,["< 0.075 mm"])]),inp("fondo","0",{num:true}),el("div")]));
+  c3.appendChild(live(function(){ var g=granCalc(d); return g.hayF?"Suma del fino: "+fx(g.sumF,1)+" g"+(ok(g.lav)?" · lavado seco: "+fx(g.lav,1)+" g":""):""; }));
   app.appendChild(c3);
+  /* 4. plasticidad (SUCS) */
+  var c4=sec("4 · Plasticidad (opcional)","Para el símbolo SUCS. Del ensayo de límites de la misma muestra.");
+  c4.appendChild(fieldWrap("¿No plástico (NP)?",optsCtl(d.np?"SÍ":"NO",["SÍ","NO"],function(v){ d.np=v==="SÍ"; render(); },{})));
+  if(!d.np) c4.appendChild(el("div",{class:"g2"},[numField("llG","LL","Ej: 31","%"),numField("ipG","IP","Ej: 10","%")]));
+  app.appendChild(c4);
 }
 function formLimites(app){
   var d=S.d;
@@ -3178,22 +3350,34 @@ function buildRes(){
     c.appendChild(t);
   } else c.appendChild(el("div",{class:"stat",style:"margin-top:0"},["Los resultados aparecen a medida que llenas los datos."]));
   if(R.chart){ var ch=el("div",{class:"chart"}); ch.innerHTML=R.chart; c.appendChild(ch); }
+  if(R.chart && R.legend) c.appendChild(el("div",{class:"leg"},R.legend.map(function(l){
+    return el("span",null,[el("i",{class:l[2],style:l[2]==="dot"?"background:"+l[0]:"border-color:"+l[0]}),l[1]]); })));
+  if(R.huso){
+    var ht=el("table",{class:"ht"},[el("tr",null,[el("th",null,["Tamiz"]),el("th",null,["% pasa"]),el("th",null,["Huso"]),el("th",null,[""])])]);
+    R.huso.pts.forEach(function(p){
+      ht.appendChild(el("tr",null,[el("td",null,[p.t+" ",el("small",{style:"color:#9ca3af"},[String(p.mm)])]),
+        el("td",null,[ok(p.p)?fx(p.p,1):"—"]),
+        el("td",null,[(ok(p.mn)?p.mn:"—")+" – "+(ok(p.mx)?p.mx:"—")]),
+        el("td",{class:p.ok===false?"bad":p.ok?"ok":""},[p.ok===false?"✗":p.ok?"✓":"—"])]));
+    });
+    c.appendChild(ht);
+  }
   return c;
 }
 function evaluar(){ return TESTS[S.tipo].calc(S.d); }
 /* pantalla */
 function elegir(k,o){ S.tipo=k; if(!S.datos[k]) S.datos[k]=nuevoForm(k); S.d=S.datos[k]; S.origen=null;
   o=o||{};
-  if(k==="REEMPLAZO"){
-    if(o.frente && o.frente!==S.d.frente){ S.d.frente=o.frente; S.d.mat=""; S.d.tf=""; }
-    if(o.mat && o.mat!==S.d.mat){ S.d.mat=o.mat; S.d.tf=""; }
+  if(k==="REEMPLAZO"||k==="GRANULO"){
+    if(o.frente && o.frente!==S.d.frente){ S.d.frente=o.frente; S.d.mat=""; S.d.tf=""; S.d.hu=""; }
+    if(o.mat && o.mat!==S.d.mat){ S.d.mat=o.mat; S.d.tf=""; S.d.hu=""; }
     if(o.registro) S.origen="registro";
-    elegirTF(S.d);
+    if(k==="REEMPLAZO") elegirTF(S.d); else elegirHuso(S.d);
   }
 }
 function vista(app){
   liveCells=[];
-  if(S.tipo==="REEMPLAZO" && S.d && !S.d.frente && window.state && state.frente) S.d.frente=state.frente;
+  if((S.tipo==="REEMPLAZO"||S.tipo==="GRANULO") && S.d && !S.d.frente && window.state && state.frente) S.d.frente=state.frente;
   var c=sec("¿Qué ensayo vas a calcular?","Ingresa los datos del laboratorio para verificar resultados y gráficas. Por ahora no se suben.");
   c.appendChild(optsCtl(S.tipo,Object.keys(TESTS).filter(function(k){ return !!cfg_global().tipos[k]; }),function(v){ elegir(v); render(); },
     {labelFn:function(k){ return cap(cfg_global().tipos[k].corto); }}));
