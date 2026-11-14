@@ -413,19 +413,20 @@ var REP_CAMPOS = [
 function defaultReporte(){ var r={}; REP_CAMPOS.forEach(function(c){ r[c[0]]=c[2]; }); return r; }
 
 function E(id,abrev,largo,corto,norma,o){ o=o||{};
-  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat,
+  return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,cp:!!o.cp,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat,
           horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0, pideDH:id==="REEMPLAZO"}; }
 function defaultEnsayos(){
   return [
     E("REEMPLAZO","RA","DENSIDAD DE CAMPO - REEMPLAZO DE AGUA","REEMPLAZO DE AGUA","ASTM D5030",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,nEns:true}),
     E("CONO",     "CA","DENSIDAD DE CAMPO - CONO DE ARENA",    "CONO DE ARENA",    "ASTM D1556",{asoc:["HUMEDAD"],nEns:true}),
-    E("MUESTRA",  "",  "TOMA DE MUESTRA",                      "MUESTRA PARA LABORATORIO","",{asoc:["GRANULO","HUMEDAD","LIMITES"],muestra:true}),
+    E("MUESTRA",  "",  "TOMA DE MUESTRA",                      "MUESTRA PARA LABORATORIO","",{asoc:["GRANULO","HUMEDAD","LIMITES"],muestra:true,cp:true}),
     E("GRANULO",  "G", "ANÁLISIS GRANULOMÉTRICO POR TAMIZADO", "GRANULOMETRÍA",    "ASTM D6913"),
     E("HUMEDAD",  "CH","CONTENIDO DE HUMEDAD",                 "CONTENIDO DE HUMEDAD","ASTM D2216"),
     E("LIMITES",  "L", "LÍMITES DE ATTERBERG",                 "LÍMITES DE ATTERBERG","ASTM D4318"),
     E("PROCTOR",  "PE","PROCTOR ESTÁNDAR",                     "PROCTOR ESTÁNDAR", "ASTM D698",{asoc:[]}),
     E("GRAVEDAD", "GE","GRAVEDAD ESPECÍFICA DE SÓLIDOS",       "GRAVEDAD ESPECÍFICA","ASTM D854"),
-    E("EVALMAT",  "EM","EVALUACIÓN DE MATERIAL",               "EVALUACIÓN DE MATERIAL","",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,muestra:true,evalMat:true})
+    E("CARGA",    "CP","ÍNDICE DE CARGA PUNTUAL",              "CARGA PUNTUAL",    "ASTM D5731"),
+    E("EVALMAT",  "EM","EVALUACIÓN DE MATERIAL",               "EVALUACIÓN DE MATERIAL","",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,cp:true,muestra:true,evalMat:true})
   ];
 }
 var MAT_COD = {"RELLENO ESTRUCTURAL":"RE","SUELO DE BAJA PERMEABILIDAD":"SBP","SOBRERREVESTIMIENTO":"SR",
@@ -449,7 +450,7 @@ function defaultConfig(){
   function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
   var cd={
-    esquema:4, conEval:true, conHuso:true, geConProctor:true, peSinCH:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
+    esquema:4, conEval:true, conHuso:true, geConProctor:true, peSinCH:true, conCP:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -478,7 +479,7 @@ function sanitizeEnsayo(t,b){
   b=b||{}; t=t||{};
   return {id:str(t.id)||b.id||("E"+newId()), abrev:codigoLimpio(t.abrev!=null?t.abrev:b.abrev),
           largo:up(t.largo)||b.largo||"", corto:up(t.corto)||b.corto||"", norma:t.norma!=null?up(t.norma):(b.norma||""),
-          asoc:arrStr(t.asoc!=null?t.asoc:b.asoc), proc:t.proc!=null?!!t.proc:!!b.proc,
+          asoc:arrStr(t.asoc!=null?t.asoc:b.asoc), proc:t.proc!=null?!!t.proc:!!b.proc, cp:t.cp!=null?!!t.cp:!!b.cp,
           nEns:t.nEns!=null?!!t.nEns:!!b.nEns, muestra:t.muestra!=null?!!t.muestra:!!b.muestra,
           evalMat:t.evalMat!=null?!!t.evalMat:!!b.evalMat, horno:t.horno!=null?!!t.horno:!!b.horno, pideDH:t.pideDH!=null?!!t.pideDH:!!b.pideDH};
 }
@@ -540,6 +541,14 @@ function sanitizeCfg(c){
   }).filter(function(f){ return !!f.nombre; });
   if(!o.frentes.length) o.frentes=d.frentes;
   if(!c.conHuso) sembrarHuso(o);
+  /* carga puntual: se agrega una vez (ensayo, botón en EM y muestreo, y en los materiales que tienen EM o muestreo) */
+  if(!c.conCP){
+    if(!findBy(o.ensayos,"id","CARGA")) o.ensayos.push(findBy(defaultEnsayos(),"id","CARGA"));
+    o.ensayos.forEach(function(t){ if(t.evalMat||t.muestra) t.cp=true; });
+    o.frentes.forEach(function(f){ (f.mats||[]).forEach(function(x){
+      if(x.ens.indexOf("CARGA")<0 && (x.ens.indexOf("EVALMAT")>=0 || x.ens.indexOf("MUESTRA")>=0)) x.ens.push("CARGA"); }); });
+  }
+  o.conCP=true;
   o.conHuso=true;
   o.series={};
   Object.keys(c.series||{}).forEach(function(k){ var s=c.series[k]||{}; if(ent(s.sig)>=1||s.reinicio) o.series[k]={sig:String(ent(s.sig)>=1?ent(s.sig):1),reinicio:Number(s.reinicio)||0}; });
@@ -890,7 +899,7 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {dh:"",horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false}; }
+function nuevoForm(){ return {dh:"",horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false,conCP:false}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
@@ -1051,7 +1060,7 @@ function evaluacionesDe(frente,estructura){
     .sort(function(a,b){ return (b.t||0)-(a.t||0); });
 }
 /* generadores posibles de un ensayo: los que lo dejan como pendiente (RA, CA, EM, muestra, Proctor…) */
-function generadoresDe(k){ return TIPO_KEYS.filter(function(g){ var t=cfg.tipos[g]; return g!==k && t && (t.asoc.indexOf(k)>=0 || ((k==="PROCTOR"||k==="GRAVEDAD") && t.proc)); }); }
+function generadoresDe(k){ return TIPO_KEYS.filter(function(g){ var t=cfg.tipos[g]; return g!==k && t && (t.asoc.indexOf(k)>=0 || ((k==="PROCTOR"||k==="GRAVEDAD") && t.proc) || (k==="CARGA" && t.cp)); }); }
 /* pendientes de ese ensayo cuyo generador es del tipo elegido, en el frente (y estructura) actual */
 function pendientesPara(k,genTipo){
   var d=state.d;
@@ -1090,6 +1099,11 @@ function asocBase(){
 }
 /* la gravedad específica acompaña al Proctor si el material del frente la tiene */
 function geDisp(){ return !!cfg.tipos.GRAVEDAD && ensayosDisp(getFrente(state.frente),state.d.material).indexOf("GRAVEDAD")>=0; }
+function puedeCP(){
+  var fr=getFrente(state.frente);
+  return !!(state.tipo && cfg.tipos.CARGA && cfg.tipos[state.tipo].cp && cfg.tipos[state.tipo].asoc.indexOf("CARGA")<0 &&
+            ensayosDisp(fr,state.d.material).indexOf("CARGA")>=0);
+}
 function puedeProctor(){
   var fr=getFrente(state.frente);
   return !!(state.tipo && cfg.tipos[state.tipo].proc && cfg.tipos[state.tipo].asoc.indexOf("PROCTOR")<0 &&
@@ -1099,6 +1113,7 @@ function asocElegidos(){
   var d=state.d;
   var a=asocBase().filter(function(k){ return d.asocOff.indexOf(k)<0; });
   if(d.conProctor && puedeProctor()){ a.push("PROCTOR"); if(geDisp() && a.indexOf("GRAVEDAD")<0) a.push("GRAVEDAD"); }
+  if(d.conCP && puedeCP()) a.push("CARGA");
   return a;
 }
 function evaluar(){
@@ -1372,6 +1387,12 @@ function tarjetaEnsayo(k){
     onclick:function(){ if(state.tipo===k) return; state.tipo=k; resetForm(); render(); }},
     [el("span",{class:"ab"},[t.abrev||(esMuestra(k)?"M":"?")]),el("span",{class:"nm"},[t.corto])]);
 }
+function cpToggle(){
+  var d=state.d;
+  return el("button",{type:"button",class:"ptog"+(d.conCP?" on":""),style:"margin-top:8px",disabled:!!d.fijo,"aria-pressed":d.conCP?"true":"false",
+    onclick:function(){ d.conCP=!d.conCP; trasCambio(); render(); }},
+    [el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,["Aplica carga puntual"])])]);
+}
 function proctorToggle(){
   var d=state.d;
   return el("button",{type:"button",class:"ptog"+(d.conProctor?" on":""),disabled:!!d.fijo,"aria-pressed":d.conProctor?"true":"false",
@@ -1443,6 +1464,7 @@ function ensayosCard(fr){
   var c=sec("Ensayo");
   c.appendChild(el("div",{class:"tgrid"},disp.map(tarjetaEnsayo)));
   if(state.tipo && puedeProctor()) c.appendChild(proctorToggle());
+  if(state.tipo && puedeCP()) c.appendChild(cpToggle());
   /* ensayo que no es generador: se elige de qué generador proviene (RA, CA, EM…) o se ingresa el correlativo sin generador */
   var noGen=state.tipo&&!esGenerador(state.tipo)&&!state.edit, gens=noGen?generadoresDe(state.tipo):[];
   if(noGen && !gens.length && !libreSinGen() && !state.pend)
@@ -1568,7 +1590,7 @@ function renderMain(app){
   }
   if(!state.tipo) return;
   if(requiereGen()){ app.appendChild(el("div",{class:"hint"},["Elige arriba el generador y su pendiente para continuar."])); return; }
-  if(state.pend && puedeProctor()) app.appendChild(el("div",{class:"card"},[proctorToggle()]));
+  if(state.pend && (puedeProctor()||puedeCP())) app.appendChild(el("div",{class:"card"},[puedeProctor()?proctorToggle():null,puedeCP()?cpToggle():null]));
   app.appendChild(codigoCard());
   /* la procedencia va después del correlativo; en un pendiente viene del ensayo que lo originó */
   var pcx=procedenciaCtl(fr); if(pcx) app.appendChild(el("div",{class:"card"},[pcx]));
@@ -1632,6 +1654,8 @@ function tarjetaPend(p){
   if(t.proc && p.slots.indexOf("PROCTOR")<0)
     fila.appendChild(el("button",{type:"button",class:"mini",onclick:function(){
       ajustarPadre(r.u,cfg.tipos.GRAVEDAD&&p.slots.indexOf("GRAVEDAD")<0?["PROCTOR","GRAVEDAD"]:["PROCTOR"],{}); }},["＋ Agregar Proctor (PE + GE)"]));
+  if(t.cp && cfg.tipos.CARGA && p.slots.indexOf("CARGA")<0)
+    fila.appendChild(el("button",{type:"button",class:"mini",onclick:function(){ ajustarPadre(r.u,["CARGA"],{}); }},["＋ Agregar carga puntual (CP)"]));
   p.falta.forEach(function(k){ fila.appendChild(el("button",{type:"button",class:"mini dng",onclick:function(){ omitirPend(p,k); }},["✕ No se hará "+cfg.tipos[k].abrev])); });
   ops.appendChild(fila);
   c.appendChild(ops);
@@ -2413,6 +2437,7 @@ function catalogoEnsayos(C){
       function tog(campo,txt){ return el("button",{type:"button",class:"ptog"+(t[campo]?" on":""),style:"margin-bottom:8px",onclick:function(){
         t[campo]=!t[campo]; if(campo==="muestra"&&t.muestra){ t.nEns=false; } markDirty(); render(); }},[el("span",{class:"sw"},[el("i")]),el("span",{class:"pt"},[el("b",null,[txt])])]); }
       if(C.tipos.PROCTOR && t.id!=="PROCTOR" && t.asoc.indexOf("PROCTOR")<0) body.appendChild(tog("proc","Muestra el botón “Aplica Proctor estándar”"));
+      if(C.tipos.CARGA && t.id!=="CARGA" && t.asoc.indexOf("CARGA")<0) body.appendChild(tog("cp","Muestra el botón “Aplica carga puntual”"));
       if(!t.muestra) body.appendChild(tog("nEns","Pide N° de ensayo por capa"));
       if(!t.muestra) body.appendChild(tog("horno","Puede quedar en proceso (horno)"));
       if(!t.muestra) body.appendChild(tog("pideDH","Pide densidad húmeda (DH)"));
@@ -2434,7 +2459,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v37";
+var VERSION_APP="v38";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
