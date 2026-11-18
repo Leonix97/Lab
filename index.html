@@ -414,7 +414,7 @@ function defaultReporte(){ var r={}; REP_CAMPOS.forEach(function(c){ r[c[0]]=c[2
 
 function E(id,abrev,largo,corto,norma,o){ o=o||{};
   return {id:id,abrev:abrev,largo:largo,corto:corto,norma:norma,asoc:o.asoc||[],proc:!!o.proc,cp:!!o.cp,nEns:!!o.nEns,muestra:!!o.muestra,evalMat:!!o.evalMat,
-          horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0, pideDH:id==="REEMPLAZO"}; }
+          horno:["GRANULO","HUMEDAD","LIMITES","PROCTOR","GRAVEDAD"].indexOf(id)>=0, pideDH:id==="REEMPLAZO"||id==="CONO"}; }
 function defaultEnsayos(){
   return [
     E("REEMPLAZO","RA","DENSIDAD DE CAMPO - REEMPLAZO DE AGUA","REEMPLAZO DE AGUA","ASTM D5030",{asoc:["GRANULO","HUMEDAD","LIMITES"],proc:true,nEns:true}),
@@ -450,7 +450,7 @@ function defaultConfig(){
   function F(id,nombre,corto,codigo){ return {id:id,nombre:nombre,corto:corto,codigo:codigo,formato:"",estructuras:estructurasDefecto(id),
     mats:mats.map(function(m){ return matFrente(m,ensayosPorDefecto(m),PROC_BASE); })}; }
   var cd={
-    esquema:4, conEval:true, conHuso:true, geConProctor:true, peSinCH:true, conCP:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
+    esquema:4, conEval:true, conHuso:true, geConProctor:true, peSinCH:true, conCP:true, dhCono:true, prefijo:"ST.CA", digCod:"3", formato:"{PRE}.{FRENTE}.{ENSAYO}.{MAT}.{N}", codEM:"EM",
     ensayos:defaultEnsayos(),
     materiales:mats.map(function(m){ return {nombre:m,codigo:MAT_COD[m]}; }),
     procedencias:PROC_BASE.slice(),
@@ -549,6 +549,9 @@ function sanitizeCfg(c){
       if(x.ens.indexOf("CARGA")<0 && (x.ens.indexOf("EVALMAT")>=0 || x.ens.indexOf("MUESTRA")>=0)) x.ens.push("CARGA"); }); });
   }
   o.conCP=true;
+  /* el cono de arena también reporta DH: se activa una vez */
+  if(!c.dhCono){ var ca=findBy(o.ensayos,"id","CONO"); if(ca) ca.pideDH=true; }
+  o.dhCono=true;
   o.conHuso=true;
   o.series={};
   Object.keys(c.series||{}).forEach(function(k){ var s=c.series[k]||{}; if(ent(s.sig)>=1||s.reinicio) o.series[k]={sig:String(ent(s.sig)>=1?ent(s.sig):1),reinicio:Number(s.reinicio)||0}; });
@@ -745,7 +748,9 @@ function terminarEnsayo(r){
   var f=fechaActual();
   if(!confirm("¿Terminar "+codCorto(r.k,r.n)+" ("+cap(cfg.tipos[r.k].corto).toLowerCase()+")?\nSe registra como terminado el "+fechaTxt(f)+", turno "+state.turno.toLowerCase()+".")) return;
   ajustarPadre(r.u,[],{"__FIN__":[f,state.turno,sesion?sesion.nombre:""].join("|")});
-  state.flash="Terminado: "+codCorto(r.k,r.n)+"."; render();
+  var t=cfg.tipos[r.k]||{}, txt=["*"+fechaWA(f)+" · TURNO "+state.turno+"*","*"+(t.corto||r.k)+"*",r.cod?"*"+r.cod+"*":null,
+    "Estado: terminado ✅ (inició "+fechaWA(r.d)+", "+String(r.tu||"").toLowerCase()+")",sesion?"Realizó: "+tituloTxt(sesion.nombre):null].filter(Boolean).join("\n");
+  copyText(txt,function(g){ state.flash="Terminado: "+codCorto(r.k,r.n)+"."+(g?" Texto copiado para WhatsApp.":""); render(); });
 }
 function nPendientes(){ var n=enProcesoTodos().length; pendientes().forEach(function(p){ n+=p.falta.length; }); return n; }
 
@@ -899,7 +904,7 @@ function renderLogin(app){
 /* view: main (Nuevo) · pend (Pendientes) · hoy (Del día) · config */
 var state = {view:"main",frente:"",tipo:"",d:null,flash:"",foto:null,subida:null,turno:"",origen:"",pend:null,pf:""};
 
-function nuevoForm(){ return {dh:"",horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false,conCP:false}; }
+function nuevoForm(){ return {dh:"",horno:false,genTipo:"",sinGen:false,estructura:"",evalMat:false,material:"",procedencia:"",procOtra:false,capa:"",conDetalle:false,detalle:"",codEdit:false,codN:"",nEdit:false,nEns:"",fijo:null,asocOff:[],conProctor:false,conCP:false,cota:"",tf:"",tfv:"",coph:"",ciclos:""}; }
 /* conserva la muestra (material, procedencia, capa) salvo que se pida limpiar */
 function resetForm(limpiar){
   var prev=state.d;
@@ -1161,6 +1166,10 @@ function computeTexto(){
           str(d.procedencia)?"PROCEDENCIA: "+str(d.procedencia).replace(/\s+/g," "):null,
           mu?null:"CORRELATIVO: "+fmtCod(state.tipo,R.cod),
           !mu&&R.nEns>=1?"N° ENSAYO: "+R.nEns:null,
+          t.nEns&&numOk(d.cota)?"COTA: "+numOk(d.cota):null,
+          t.nEns&&refVal().v?(state.tipo==="CONO"?"DMS: ":"TEST FILL: ")+refVal().v+" g/cm³":null,
+          t.nEns&&refVal().c?"CH ÓPTIMO: "+refVal().c+" %":null,
+          state.tipo==="REEMPLAZO"&&str(d.ciclos)?"CICLOS: "+str(d.ciclos):null,
           state.pend?"REFERENCIA: "+(state.pend.cod||"MUESTRA "+fechaTxt(state.pend.d)):(state.edit&&state.edit.form.padreCod?"REFERENCIA: "+state.edit.form.padreCod:null),
           puedeHorno()&&d.horno?"ESTADO: EN PROCESO":null,
           state.edit&&lineaDe(state.edit.texto,"REALIZADO POR")?"REALIZADO POR: "+lineaDe(state.edit.texto,"REALIZADO POR"):(sesion?"REALIZADO POR: "+sesion.nombre:null),
@@ -1191,11 +1200,11 @@ function flashBtn(btn,good,txtOk,txtBase,clsBase){
 }
 
 function buildOutBox(texto){
-  var pre=el("pre",null,[texto]);
-  var out=el("div",{class:"card",id:"outbox"},[el("div",{class:"out-t"},["Texto generado"]),pre]);
+  var pre=el("pre",null,[textoWA(texto)]);
+  var out=el("div",{class:"card",id:"outbox"},[el("div",{class:"out-t"},["Texto para WhatsApp"]),pre]);
   var bCopy=el("button",{class:"b-pri",type:"button"},["📋 Copiar"]);
   bCopy.addEventListener("click",function(){
-    copyText(computeTexto()||"",function(g){ if(!g) seleccionar(out.querySelector("pre")); flashBtn(bCopy,g,"✓ Copiado","📋 Copiar","b-pri"); });
+    copyText(textoWA(computeTexto()||""),function(g){ if(!g) seleccionar(out.querySelector("pre")); flashBtn(bCopy,g,"✓ Copiado","📋 Copiar","b-pri"); });
   });
   out.appendChild(el("div",{class:"btns"},[bCopy,
     el("button",{class:"icn",type:"button",title:"Tomar foto","aria-label":"Tomar foto",onclick:function(){ abrirFoto("inCam"); }},["📷"]),
@@ -1274,6 +1283,10 @@ function editarEnsayo(it){
   var det=lineaDe(it.texto,"DETALLE"); d.conDetalle=!!det; d.detalle=det;
   d.dh=f.dh||lineaDe(it.texto,"DH").replace(/\s*g\/cm.*$/,"");
   d.horno=!!(f.o&&f.o.__PROC__);
+  d.cota=f.cota||lineaDe(it.texto,"COTA"); d.ciclos=f.ciclos||lineaDe(it.texto,"CICLOS");
+  var tv=f.tfv||(lineaDe(it.texto,"TEST FILL")||lineaDe(it.texto,"DMS")).replace(/\s*g\/cm.*$/,""), tc=f.coph||lineaDe(it.texto,"CH ÓPTIMO").replace(/\s*%$/,"");
+  var tx=f.tf?findBy(tfLista(),"nombre",f.tf):null;
+  if(tx) d.tf=tx.nombre; else if(tv||tc){ d.tf=tfLista().length?"MANUAL":""; d.tfv=tv; d.coph=tc; }
   state.view="main"; render(); window.scrollTo(0,0);
 }
 function salirEdicion(volver){
@@ -1304,7 +1317,7 @@ function guardarEdicion(){
   var form={}; Object.keys(e.form).forEach(function(k){ form[k]=e.form[k]; });
   form.frente=state.frente; form.estructura=d.estructura||""; form.evalMat=esEval(); form.tipo=state.tipo; form.material=d.material;
   form.procedencia=prN; form.capa=R.capa; form.nEns=nE; form.fecha=fechaActual(); form.turno=state.turno;
-  form.cod=fmtCod(state.tipo,R.cod); form.codN=R.cod; form.dh=cfg.tipos[state.tipo].pideDH?dhVal():""; form.o=o;
+  form.cod=fmtCod(state.tipo,R.cod); form.codN=R.cod; form.dh=cfg.tipos[state.tipo].pideDH?dhVal():""; form.o=o; datosDens(form);
   form.editado=(sesion?sesion.nombre:"")+" "+ymd(new Date());
   state.subida={sig:sig,estado:"subiendo"}; render();
   api("editar",{id:e.id,texto:texto,campos:camposSubida(texto),fecha:form.fecha,turno:form.turno,form:JSON.stringify(form),
@@ -1339,6 +1352,7 @@ function subirEnsayo(){
             fecha:fechaActual(),turno:state.turno,cod:mu?"":fmtCod(state.tipo,R.cod),codN:mu?0:R.cod,t:t,asoc:R.asoc,
             padre:state.pend?state.pend.u:"",padreCod:state.pend?state.pend.cod:"",
             o:puedeHorno()&&d.horno?{__PROC__:"EN PROCESO"}:{}, dh:cfg.tipos[state.tipo].pideDH?dhVal():""};
+  datosDens(form);
   var it={uid:uid,texto:texto,campos:camposSubida(texto),nombreFoto:nombreFoto(form),
           foto:state.foto?{data:state.foto.data,mime:state.foto.mime}:null,creado:t,turno:state.turno,fecha:form.fecha,
           form:JSON.stringify(form)};
@@ -1427,6 +1441,97 @@ function procedenciaCtl(fr){
 }
 /* detalle opcional del registro */
 /* densidad húmeda (DH) del reemplazo de agua: solo va en el texto, no en el RD */
+/* ── datos de densidad (RA y CA): cota, test fill / DMS, CH óptimo y ciclos ── */
+function tfLista(){ var fr=getFrente(state.frente), x=fr&&state.d?findBy(fr.mats||[],"m",state.d.material):null;
+  return x&&Array.isArray(x.tf)?x.tf.filter(function(t){ return str(t.nombre)&&str(t.dms); }):[]; }
+function lblRef(k){ return (k||state.tipo)==="CONO"?"DMS":"Test fill"; }
+function refVal(){ var d=state.d; if(!d) return {v:"",c:"",n:""};
+  if(d.tf && d.tf!=="MANUAL"){ var t=findBy(tfLista(),"nombre",d.tf); if(t) return {v:str(t.dms),c:str(t.coph),n:t.nombre}; }
+  return {v:numOk(d.tfv),c:numOk(d.coph),n:""}; }
+function datosDens(form){ var t=cfg.tipos[state.tipo], d=state.d; if(!t||!t.nEns) return; var r=refVal();
+  form.cota=numOk(d.cota); form.tf=r.n; form.tfv=r.v; form.coph=r.c; if(state.tipo==="REEMPLAZO") form.ciclos=str(d.ciclos); }
+function numOk(v){ v=str(v); return v&&isFinite(parseFloat(v))?v:""; }
+function campoNum(k,ph,u,opt){
+  var d=state.d; opt=opt||{};
+  var i=el("input",{type:"text",inputmode:opt.int?"numeric":"decimal",value:d[k]||"",placeholder:ph,"data-fk":k,autocomplete:"off"});
+  if(d.fijo) i.setAttribute("readonly","");
+  i.addEventListener("input",function(e){
+    var raw=e.target.value, v=opt.int?raw.replace(/\D/g,"").slice(0,4):numFilter(raw); if(v!==raw) e.target.value=v;
+    d[k]=v; trasCambio(); render(); });
+  return u?el("div",{class:"row"},[i,el("span",{class:"u"},[u])]):i;
+}
+function densCard(){
+  var t=cfg.tipos[state.tipo], d=state.d; if(!t||!t.nEns) return null;
+  var c=el("div",{class:"card"}), lbl=lblRef(), l=tfLista();
+  c.appendChild(fieldWrap("Nivel de cota",campoNum("cota","Ej: 2798.00","m"),"Opcional."));
+  if(l.length && !d.fijo){
+    c.appendChild(fieldWrap(lbl+" y CH óptimo",selectCtl(d.tf,l.map(function(x){ return x.nombre; }).concat(["MANUAL"]),
+      function(k){ if(k==="MANUAL") return "Otro: escribir "+lbl+" y CH óptimo"; var x=findBy(l,"nombre",k); return x.nombre+" · "+x.dms+" g/cm³ · CH "+(x.coph||"?")+" %"; },
+      function(v){ d.tf=v; trasCambio(); render(); },"Elige el "+lbl.toLowerCase()+"…")));
+  }
+  if(!l.length || d.tf==="MANUAL" || (d.fijo && !findBy(l,"nombre",d.tf))){
+    if(!l.length) c.appendChild(el("div",{class:"fdesc",style:"margin:-2px 0 8px"},["Este material no tiene "+lbl.toLowerCase()+" configurado: escríbelo."]));
+    c.appendChild(el("div",{class:"two"},[fieldWrap(lbl,campoNum("tfv","Ej: 2.193","g/cm³")),fieldWrap("CH óptimo",campoNum("coph","Ej: 6.1","%"))]));
+  } else if(d.tf && d.fijo){
+    var r=refVal(); c.appendChild(el("div",{class:"fdesc"},[lbl+": "+r.v+" g/cm³ · CH óptimo: "+r.c+" %"]));
+  }
+  if(state.tipo==="REEMPLAZO") c.appendChild(fieldWrap("Ciclos",campoNum("ciclos","Ej: 8","",{int:true}),"Opcional."));
+  return c;
+}
+/* ── texto para WhatsApp: se arma desde el texto del registro (que sigue alimentando las columnas de la hoja) ── */
+var MINUS=["de","del","la","las","el","los","y","en","por","a"];
+function tituloTxt(s){ return String(s||"").toLowerCase().split(/(\s+|\/)/).map(function(w,i){
+  if(!w.trim()||w==="/"||w==="-") return w;
+  if(/\d/.test(w)) return w.toUpperCase();
+  if(i>0 && MINUS.indexOf(w)>=0) return w;
+  return w.charAt(0).toUpperCase()+w.slice(1); }).join("").replace(/\s*\/\s*/g," / ").replace(/\s+-\s+/g," - "); }
+function fechaWA(f){ var m=String(f||"").match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(m) return m[1]+"/"+m[2]+"/"+m[3].slice(2);
+  var p=String(f||"").split("-"); return p.length===3?p[2]+"/"+p[1]+"/"+p[0].slice(2):String(f||""); }
+function tipoDeLargo(largo){ largo=String(largo||"").replace(/\s*\([^)]*\)$/,""); for(var i=0;i<TIPO_KEYS.length;i++){ var t=cfg.tipos[TIPO_KEYS[i]]; if(t&&t.largo===largo) return TIPO_KEYS[i]; } return ""; }
+/* fin: {d:"aaaa-mm-dd", tu:"DÍA", p:"nombre"} si el ensayo en proceso ya se terminó */
+function textoWA(texto,fin){
+  var L=function(k){ return lineaDe(texto,k); };
+  var f=L("FECHA"), tu=L("TURNO"), act=L("ACTIVIDAD"), out=[];
+  var cab=function(fe,t){ out.push("*"+fechaWA(fe)+" · TURNO "+String(t||"").toUpperCase()+"*"); };
+  var quien=L("REALIZADO POR");
+  if(act){ cab(f,tu); out.push("*"+act.replace(/ DURANTE EL TURNO$/,"")+"*"); out.push(tituloTxt(L("PROYECTO")));
+    if(L("ESTRUCTURA")) out.push("Estructura: "+tituloTxt(L("ESTRUCTURA"))); if(quien) out.push("Realizó: "+tituloTxt(quien)); return out.join("\n"); }
+  var k=tipoDeLargo(L("ENSAYO")), t=cfg.tipos[k]||{}, gen=k?esGenerador(k):!L("REFERENCIA");
+  var nombre=t.muestra&&!t.evalMat?"MUESTREO DE MATERIAL":(t.corto||L("ENSAYO").replace(/\s*\([^)]*\)$/,""));
+  var proceso=L("ESTADO")==="EN PROCESO";
+  if(fin){ cab(fin.d,fin.tu); } else cab(f,tu);
+  out.push("*"+nombre+"*");
+  if(L("CORRELATIVO")) out.push("*"+L("CORRELATIVO")+"*");
+  if(!gen){
+    if(L("DETALLE")) out.push("Detalle: "+L("DETALLE"));
+    if(fin) out.push("Estado: terminado ✅ (inició "+fechaWA(f)+", "+String(tu).toLowerCase().replace("día","día")+")");
+    else if(proceso) out.push("Estado: en horno ⏳");
+    if(fin&&fin.p) out.push("Realizó: "+tituloTxt(fin.p)); else if(quien) out.push("Realizó: "+tituloTxt(quien));
+    return out.join("\n");
+  }
+  out.push("");
+  out.push(tituloTxt(L("PROYECTO")));
+  if(L("ESTRUCTURA")) out.push("Estructura: "+tituloTxt(L("ESTRUCTURA")));
+  if(L("DETALLE")) out.push("Detalle: "+L("DETALLE"));
+  var cn=[L("CAPA")?"Capa: "+L("CAPA"):"",L("N° ENSAYO")?"Ensayo N° "+("0"+L("N° ENSAYO")).slice(-2):""].filter(Boolean).join(" · ");
+  if(cn) out.push(cn);
+  if(L("COTA")) out.push("Nivel de cota: "+L("COTA"));
+  if(L("MATERIAL")) out.push("Material: "+tituloTxt(L("MATERIAL")));
+  if(L("PROCEDENCIA")) out.push("Cantera: "+tituloTxt(L("PROCEDENCIA")));
+  var dens=[];
+  if(L("TEST FILL")) dens.push("Test fill: "+L("TEST FILL"));
+  if(L("DMS")) dens.push("DMS: "+L("DMS"));
+  if(L("CH ÓPTIMO")) dens.push("CH óptimo: "+L("CH ÓPTIMO"));
+  if(L("CICLOS")) dens.push("Ciclos: "+L("CICLOS"));
+  if(L("DH")) dens.push("*DH = "+L("DH")+"*");
+  if(dens.length){ out.push(""); out=out.concat(dens); }
+  var pen=L("ENSAYOS PENDIENTES");
+  if(pen||quien) out.push("");
+  if(pen) out.push("Pendientes: "+pen.split(/\s*,\s*/).join(" · "));
+  if(quien) out.push("Realizó: "+tituloTxt(quien));
+  return out.join("\n");
+}
+function finTexto(it){ var f=formDe(it), r=f&&recDeForm(f), fin=r?finDe(r):null; return fin?{d:fin.d,tu:fin.tu,p:fin.por}:null; }
 function dhVal(){ var v=str(state.d&&state.d.dh); return v&&isFinite(parseFloat(v))?v:""; }
 function dhCard(){
   var t=cfg.tipos[state.tipo], d=state.d; if(!t||!t.pideDH) return null;
@@ -1436,7 +1541,7 @@ function dhCard(){
     var raw=e.target.value, v=numFilter(raw); if(v!==raw) e.target.value=v;
     d.dh=v; trasCambio(); render(); });
   var x=parseFloat(d.dh), aviso = d.dh&&isFinite(x)&&(x<1||x>3.2) ? "⚠ Revisa el valor: lo usual está entre 1.0 y 3.2 g/cm³." : null;
-  return el("div",{class:"card"},[fieldWrap("DH · Densidad húmeda",el("div",{class:"row"},[i,el("span",{class:"u"},["g/cm³"])]),aviso||"Opcional. Sale en el texto después del ensayo; no va en el RD.")]);
+  return el("div",{class:"card"},[fieldWrap("DH · Densidad húmeda",el("div",{class:"row"},[i,el("span",{class:"u"},["g/cm³"])]),aviso||"Opcional. Sale en el texto; no va en el RD.")]);
 }
 function puedeHorno(){ var t=cfg.tipos[state.tipo]; return !!(t&&t.horno); }
 function detalleCard(){
@@ -1595,6 +1700,7 @@ function renderMain(app){
   /* la procedencia va después del correlativo; en un pendiente viene del ensayo que lo originó */
   var pcx=procedenciaCtl(fr); if(pcx) app.appendChild(el("div",{class:"card"},[pcx]));
   app.appendChild(detalleCard());
+  var dnc=densCard(); if(dnc) app.appendChild(dnc);
   var dhc=dhCard(); if(dhc) app.appendChild(dhc);
   var t=computeTexto();
   if(t) app.appendChild(buildOutBox(t));
@@ -1735,10 +1841,11 @@ function tarjetaLib(it,sub,pendiente){
     ref?el("span",null,["↳ de "+ref]):null,
     pen?el("span",null,["⏳ dejó: "+pen]):null,
     el("div",{class:"lib-acc"},[
+      el("button",{class:"mini",type:"button",onclick:function(ev){ var b=ev.currentTarget; copyText(textoWA(t,finTexto(it)),function(g){ flashBtn(b,g,"✓ Copiado","📋 Copiar texto","mini"); }); }},["📋 Copiar texto"]),
       el("button",{class:"mini",type:"button",onclick:function(){ duplicar(it); }},["⧉ Copiar datos"]),
       sesion&&sesion.borrar&&!pendiente&&it.id&&(formDe(it)||{}).tipo!=="SIN_ACT"?el("button",{class:"mini",type:"button",onclick:function(){ editarEnsayo(it); }},["✏️ Editar"]):null,
       sesion&&sesion.borrar&&!pendiente&&it.id?el("button",{class:"mini dng",type:"button",onclick:function(){ borrarEnsayo(it); }},["🗑 Eliminar"]):null]),
-    el("details",null,[el("summary",null,["Ver texto"]),el("pre",null,[t])])
+    el("details",null,[el("summary",null,["Ver texto"]),el("pre",null,[textoWA(t,finTexto(it))])])
   ])];
   var id=idDrive(it.foto);
   if(id) kids.push(el("a",{href:it.foto,target:"_blank",rel:"noopener"},[el("img",{src:"https://drive.google.com/thumbnail?id="+id+"&sz=w200",alt:"Foto",loading:"lazy"})]));
@@ -2459,7 +2566,7 @@ function catalogoEnsayos(C){
   }},["+ Crear ensayo"]));
   return w;
 }
-var VERSION_APP="v38";
+var VERSION_APP="v39";
 /* consulta al servidor qué permisos tiene esta contraseña (sirve para revisar si el Apps Script está actualizado) */
 function verificarPermisos(){
   api("login",{},20000).then(function(j){
@@ -3482,8 +3589,11 @@ function vista(app){
     app.appendChild(el("div",{class:"btns"},[el("button",{class:"b-pri",type:"button",onclick:function(){
       var R=evaluar(), dh=R.sum.dh;
       if(!ok(dh)){ alert("Aún no hay densidad húmeda: completa calibración, pesos y volumen del hoyo."); return; }
-      state.d.dh=dh.toFixed(3); if(typeof trasCambio==="function") trasCambio();
-      state.view="main"; state.flash="DH "+dh.toFixed(3)+" g/cm³ copiada al registro."; render(); window.scrollTo(0,0);
+      state.d.dh=dh.toFixed(3);
+      if(S.d.tf && S.d.tf!=="MANUAL" && findBy(tfLista(),"nombre",S.d.tf)) state.d.tf=S.d.tf;
+      else if(n(S.d.mds)>0){ state.d.tf=tfLista().length?"MANUAL":""; state.d.tfv=str(S.d.mds); state.d.coph=str(S.d.och); }
+      if(typeof trasCambio==="function") trasCambio();
+      state.view="main"; state.flash="DH "+dh.toFixed(3)+" g/cm³ y test fill copiados al registro."; render(); window.scrollTo(0,0);
     }},["↩ Usar la DH en el registro"])]));
   app.appendChild(el("div",{class:"btns"},[el("button",{class:"b-dng",type:"button",onclick:function(){
     if(confirm("¿Borrar los datos de este cálculo?")){ S.datos[S.tipo]=nuevoForm(S.tipo); S.d=S.datos[S.tipo]; render(); } }},["Limpiar datos"])]));
